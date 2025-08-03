@@ -2,18 +2,8 @@
 
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
-// Configuración de la conexión a la base de datos
-$db_host = 'localhost';
-$db_name = 'clini234_cerene';
-$db_user = 'clini234_cerene';
-$db_pass = 'tu{]ScpQ-Vcg';
-
-$conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-
-// Verificar conexión
-if ($conn->connect_error) {
-    die(json_encode(array('success' => false, 'message' => 'Conexión fallida: ' . $conn->connect_error)));
-}
+require_once __DIR__ . '/../conexion.php';
+$conn = conectar();
 
 // Datos del formulario
 $idPsicologo = $_POST['IdUsuario'];

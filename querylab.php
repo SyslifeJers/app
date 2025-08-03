@@ -1,16 +1,6 @@
 <?php
-// Conexión a la base de datos
-     $servername = "localhost";
-     $username = "clini234_cerene";
-     $password = "tu{]ScpQ-Vcg";
-     $dbname = "clini234_cerene";
-
-$conn = new mysqli($servername, $username, $password, $dbname);
-
-// Verificar conexión
-if ($conn->connect_error) {
-    die("Error de conexión: " . $conn->connect_error);
-}
+require_once 'conexion.php';
+$conn = conectar();
 
 // Procesar consulta si se envió el formulario
 $results = [];
