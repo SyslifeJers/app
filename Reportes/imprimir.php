@@ -3,70 +3,63 @@ require('fpdf/fpdf.php');
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
-// Conexión a la base de datos usando PDO y configurando UTF-8
-$db_host = 'localhost';
-$db_name = 'clini234_cerene';
-$db_user = 'clini234_cerene';
-$db_pass = 'tu{]ScpQ-Vcg';
-
-try {
-    $conn = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
-    $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    
-} catch(PDOException $e) {
-    die("Conexión fallida: " . $e->getMessage());
-}
+require_once __DIR__ . '/../conexion.php';
+$conn = conectar();
 
 $fecha_inicio = isset($_GET['fecha_inicio']) ? $_GET['fecha_inicio'] : '';
 $fecha_fin = isset($_GET['fecha_fin']) ? $_GET['fecha_fin'] : '';
 $tipoPid = isset($_GET['tipoPid']) ? $_GET['tipoPid'] : '';
 // Consulta SQL para la primera tabla
-$sql = "SELECT ci.id, 
-               n.name, 
-               us.name as Psicologo, 
-               ci.costo, 
-               ci.Programado, 
-               DATE(ci.Programado) as Fecha, 
-               TIME(ci.Programado) as Hora, 
-               ci.Tipo, 
+$sql = "SELECT ci.id,
+               n.name,
+               us.name as Psicologo,
+               ci.costo,
+               ci.Programado,
+               DATE(ci.Programado) as Fecha,
+               TIME(ci.Programado) as Hora,
+               ci.Tipo,
                es.name as Estatus,
                ci.FormaPago
         FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         INNER JOIN Estatus es ON es.id = ci.Estatus
-        WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
-        ";
-    if (!empty($tipoPid)) {
-        $sql .= " AND ci.IdUsuario = '$tipoPid'";
-    }
+        WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN ? AND ?";
+if (!empty($tipoPid)) {
+    $sql .= " AND ci.IdUsuario = ?";
+}
 $sql .= " ORDER BY us.name, ci.Programado ASC";
 $stmt = $conn->prepare($sql);
-$stmt->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
-$stmt->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
+if (!empty($tipoPid)) {
+    $stmt->bind_param('ssi', $fecha_inicio, $fecha_fin, $tipoPid);
+} else {
+    $stmt->bind_param('ss', $fecha_inicio, $fecha_fin);
+}
 $stmt->execute();
-$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 // Calcular total de citas y total de costos
 $totalCitas = count($rows);
 $totalCosto = array_sum(array_column($rows, 'costo'));
 
 // Consulta para el resumen por forma de pago
-$sql_summary2 = "SELECT SUM(ci.costo) as TotalCosto, 
-                        COUNT(ci.id) as NumeroCitas, 
+$sql_summary2 = "SELECT SUM(ci.costo) as TotalCosto,
+                        COUNT(ci.id) as NumeroCitas,
                         ci.FormaPago
                  FROM Cita ci
-                 WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
-                 ";
-                 if (!empty($tipoPid)) {   
-                     $sql_summary2 .= " AND ci.IdUsuario = '$tipoPid'";
-                 }
+                 WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN ? AND ?";
+if (!empty($tipoPid)) {
+    $sql_summary2 .= " AND ci.IdUsuario = ?";
+}
 $sql_summary2 .= " GROUP BY ci.FormaPago";
 $stmt_summary2 = $conn->prepare($sql_summary2);
-$stmt_summary2->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
-$stmt_summary2->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
+if (!empty($tipoPid)) {
+    $stmt_summary2->bind_param('ssi', $fecha_inicio, $fecha_fin, $tipoPid);
+} else {
+    $stmt_summary2->bind_param('ss', $fecha_inicio, $fecha_fin);
+}
 $stmt_summary2->execute();
-$summary2_rows = $stmt_summary2->fetchAll(PDO::FETCH_ASSOC);
+$summary2_rows = $stmt_summary2->get_result()->fetch_all(MYSQLI_ASSOC);
 
 if ($totalCitas > 0) {
     // Creación del PDF
@@ -111,19 +104,18 @@ if ($totalCitas > 0) {
     }
     if (empty($tipoPid)) {
             // Nueva consulta SQL para la segunda tabla
-    $sql2 = "SELECT usu.name, 
-                    SUM(ci.costo) as TotalCosto, 
+    $sql2 = "SELECT usu.name,
+                    SUM(ci.costo) as TotalCosto,
                     COUNT(ci.id) as NumeroCitas
              FROM Cita ci
              INNER JOIN Usuarios usu ON usu.id = ci.IdUsuario
-             WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
+             WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN ? AND ?
              GROUP BY IdUsuario";
-             
+
     $stmt2 = $conn->prepare($sql2);
-    $stmt2->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
-    $stmt2->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
+    $stmt2->bind_param('ss', $fecha_inicio, $fecha_fin);
     $stmt2->execute();
-    $rows2 = $stmt2->fetchAll(PDO::FETCH_ASSOC);
+    $rows2 = $stmt2->get_result()->fetch_all(MYSQLI_ASSOC);
 
     if (count($rows2) > 0) {
         // Añadir nueva página
@@ -157,5 +149,5 @@ if ($totalCitas > 0) {
     echo "No hay resultados";
 }
 
-$conn = null; // Cerrar conexión PDO al finalizar
+$conn->close();
 ?>

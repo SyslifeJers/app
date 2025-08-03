@@ -14,20 +14,6 @@ include 'Modulos/head.php';
         <div class="table-responsive">
 
           <?php
-          // Configuración de la conexión a la base de datos
-          $db_host = 'localhost';
-          $db_name = 'clini234_cerene';
-          $db_user = 'clini234_cerene';
-          $db_pass = 'tu{]ScpQ-Vcg';
-
-          // Crear conexión
-          $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-          $conn->set_charset("utf8");
-          // Verificar la conexión
-          if ($conn->connect_error) {
-            die("Conexión fallida: " . $conn->connect_error);
-          }
-
           // Consulta SQL
           $sql = "SELECT ci.id, 
        n.name, 
