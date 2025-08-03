@@ -11,7 +11,7 @@ $db_pass = 'tu{]ScpQ-Vcg';
 
 // Crear conexión
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-
+$conn->set_charset("utf8");
 // Verificar la conexión
 if ($conn->connect_error) {
     die("Conexión fallida: " . $conn->connect_error);
@@ -308,7 +308,8 @@ include '../Modulos/footer.php';
         event.preventDefault();
         const fecha_inicio = document.getElementById('fecha_inicio').value;
         const fecha_fin = document.getElementById('fecha_fin').value;
-        const url = 'imprimir.php?fecha_inicio=' + fecha_inicio + '&fecha_fin=' + fecha_fin;
+        const tipoPid = document.getElementById('tipoPid').value;
+        const url = 'imprimir.php?fecha_inicio=' + fecha_inicio + '&fecha_fin=' + fecha_fin + '&tipoPid=' + tipoPid;
         document.getElementById('reporteFrame').src = url;
     });
 

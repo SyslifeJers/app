@@ -315,6 +315,28 @@ include 'Modulos/footer.php';
         modal.hide();
     };
 }
+function enviarFormularioJSON() {
+  const form = document.getElementById('formCita');
+  const formData = new FormData(form);
+
+  fetch('procesar_cita.php', {
+    method: 'POST',
+    body: formData
+  })
+  .then(response => response.json())
+  .then(data => {
+    if (data.success) {
+      alert('Cita guardada con éxito');
+      window.location.href = 'index.php'; // o mostrar modal de éxito
+    } else {
+      alert('Error: ' + data.message);
+    }
+  })
+  .catch(error => {
+    alert('Error en el servidor: ' + error.message);
+  });
+}
+
   function actualizarCita(idCita, estatus) {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "cancelar.php", true);
@@ -365,8 +387,11 @@ include 'Modulos/footer.php';
     }
 
     // Si todo es válido, enviar el formulario
-    document.getElementById('formCita').submit();
+enviarFormularioJSON();
+
   }
+
+
   function updateResumen() {
     const nameSelect = document.getElementById('nameSelect');
     const idEmpleado = document.getElementById('idEmpleado');

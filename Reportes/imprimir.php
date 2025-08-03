@@ -12,13 +12,14 @@ $db_pass = 'tu{]ScpQ-Vcg';
 try {
     $conn = new PDO("mysql:host=$db_host;dbname=$db_name;charset=utf8mb4", $db_user, $db_pass);
     $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    
 } catch(PDOException $e) {
     die("Conexión fallida: " . $e->getMessage());
 }
 
 $fecha_inicio = isset($_GET['fecha_inicio']) ? $_GET['fecha_inicio'] : '';
 $fecha_fin = isset($_GET['fecha_fin']) ? $_GET['fecha_fin'] : '';
-
+$tipoPid = isset($_GET['tipoPid']) ? $_GET['tipoPid'] : '';
 // Consulta SQL para la primera tabla
 $sql = "SELECT ci.id, 
                n.name, 
@@ -35,8 +36,11 @@ $sql = "SELECT ci.id,
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         INNER JOIN Estatus es ON es.id = ci.Estatus
         WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
-        ORDER BY us.name, ci.Programado ASC";
-
+        ";
+    if (!empty($tipoPid)) {
+        $sql .= " AND ci.IdUsuario = '$tipoPid'";
+    }
+$sql .= " ORDER BY us.name, ci.Programado ASC";
 $stmt = $conn->prepare($sql);
 $stmt->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
 $stmt->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
@@ -53,8 +57,11 @@ $sql_summary2 = "SELECT SUM(ci.costo) as TotalCosto,
                         ci.FormaPago
                  FROM Cita ci
                  WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
-                 GROUP BY ci.FormaPago";
-
+                 ";
+                 if (!empty($tipoPid)) {   
+                     $sql_summary2 .= " AND ci.IdUsuario = '$tipoPid'";
+                 }
+$sql_summary2 .= " GROUP BY ci.FormaPago";
 $stmt_summary2 = $conn->prepare($sql_summary2);
 $stmt_summary2->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
 $stmt_summary2->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
@@ -94,7 +101,7 @@ if ($totalCitas > 0) {
     // Filas de datos para la primera tabla
     foreach ($rows as $row) {
         $pdf->Cell(10,10,$row['id'],1);
-        $pdf->Cell(40,10,$row['name'],1);
+        $pdf->Cell(40,10,mb_strimwidth($row['name'], 0, 22, "..."),1);
         $pdf->Cell(40,10,$row['Psicologo'],1);
         $pdf->Cell(12,10,$row['costo'],1);
         $pdf->Cell(28,10,$row['Programado'],1);
@@ -102,8 +109,8 @@ if ($totalCitas > 0) {
         $pdf->Cell(20,10,$row['Tipo'],1);
         $pdf->Ln();
     }
-
-    // Nueva consulta SQL para la segunda tabla
+    if (empty($tipoPid)) {
+            // Nueva consulta SQL para la segunda tabla
     $sql2 = "SELECT usu.name, 
                     SUM(ci.costo) as TotalCosto, 
                     COUNT(ci.id) as NumeroCitas
@@ -111,7 +118,7 @@ if ($totalCitas > 0) {
              INNER JOIN Usuarios usu ON usu.id = ci.IdUsuario
              WHERE ci.Estatus = 4 AND DATE(ci.Programado) BETWEEN :fecha_inicio AND :fecha_fin
              GROUP BY IdUsuario";
-
+             
     $stmt2 = $conn->prepare($sql2);
     $stmt2->bindParam(':fecha_inicio', $fecha_inicio, PDO::PARAM_STR);
     $stmt2->bindParam(':fecha_fin', $fecha_fin, PDO::PARAM_STR);
@@ -142,6 +149,8 @@ if ($totalCitas > 0) {
             $pdf->Ln();
         }
     }
+    }
+
 
     $pdf->Output();
 } else {

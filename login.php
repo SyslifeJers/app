@@ -36,6 +36,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $updateStmt->bind_param("si", $token, $id);
             $updateStmt->execute();
 
+            // Configurar la duración de la sesión a 2 horas
+            ini_set('session.gc_maxlifetime', 7200);
+            session_set_cookie_params([
+              'lifetime' => 7200,
+              'path' => '/',
+              'domain' => '', // Cambia esto si usas un dominio específico
+              'secure' => isset($_SERVER['HTTPS']),
+              'httponly' => true,
+              'samesite' => 'Lax'
+            ]);
             // Guardar el token en la sesión
             $_SESSION['id'] = $id;
             $_SESSION['user'] = $user;

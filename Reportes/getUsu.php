@@ -7,7 +7,7 @@ $db_user = 'clini234_cerene';
 $db_pass = 'tu{]ScpQ-Vcg';
 // Crear la conexión
 $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-
+$conn->set_charset("utf8");
 // Verificar la conexión
 if ($conn->connect_error) {
     die("Conexión fallida: " . $conn->connect_error);
