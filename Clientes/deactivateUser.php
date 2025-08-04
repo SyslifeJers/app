@@ -1,23 +1,6 @@
 <?php
-$host = 'localhost';
-$db = 'clini234_cerene';
-$user = 'clini234_cerene';
-$pass = 'tu{]ScpQ-Vcg';
-$charset = 'utf8mb4';
-
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    PDO::ATTR_EMULATE_PREPARES => false,
-];
-
-try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-    echo json_encode(['success' => false, 'error' => 'Connection failed: ' . $e->getMessage()]);
-    exit;
-}
+require_once __DIR__ . '/../conexion.php';
+$conn = conectar();
 
 if (!isset($_GET['id']) || empty($_GET['id'])) {
     echo json_encode(['success' => false, 'error' => 'ID is required']);
@@ -26,26 +9,28 @@ if (!isset($_GET['id']) || empty($_GET['id'])) {
 
 $id = $_GET['id'];
 
-// Obtener el valor actual de activo
-$stmt = $pdo->prepare("SELECT activo FROM Clientes WHERE id = ?");
-$stmt->execute([$id]);
-$row = $stmt->fetch();
+$stmt = $conn->prepare("SELECT activo FROM Clientes WHERE id = ?");
+$stmt->bind_param("i", $id);
+$stmt->execute();
+$result = $stmt->get_result();
+$row = $result->fetch_assoc();
 
 if (!$row) {
     echo json_encode(['success' => false, 'error' => 'Client not found']);
     exit;
 }
 
-// Determinar el nuevo valor de activo
 $nuevoActivo = $row['activo'] == 1 ? 0 : 1;
 
-// Actualizar el valor de activo
-$stmt = $pdo->prepare("UPDATE Clientes SET activo = ? WHERE id = ?");
-$success = $stmt->execute([$nuevoActivo, $id]);
+$stmt = $conn->prepare("UPDATE Clientes SET activo = ? WHERE id = ?");
+$stmt->bind_param("ii", $nuevoActivo, $id);
+$success = $stmt->execute();
 
 if ($success) {
     echo json_encode(['success' => true]);
 } else {
     echo json_encode(['success' => false, 'error' => 'Failed to execute the query']);
 }
+
+$conn->close();
 ?>
