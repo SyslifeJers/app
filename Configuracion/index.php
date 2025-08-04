@@ -19,35 +19,13 @@ include '../Modulos/head.php';
                 <?php
                 
                 $sql = "SELECT `id`, `name`, `costo`, `activo` FROM `Precios`";
-
-                $host = 'localhost';
-                $db   = 'clini234_cerene';
-                $user = 'clini234_cerene';
-                $pass = 'tu{]ScpQ-Vcg';
-                $charset = 'utf8mb4';
-                
-                $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-                $options = [
-                    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES   => false,
-                ];
-                
-                try {
-                    $pdo = new PDO($dsn, $user, $pass, $options);
-                } catch (\PDOException $e) {
-                    throw new \PDOException($e->getMessage(), (int)$e->getCode());
-                }
-                
-                $stmt = $pdo->prepare($sql);
-                $stmt->execute();
-                $result = $stmt->fetchAll(); // Obtener todos los resultados como un array asociativo
+                $result = $conn->query($sql);
                 
                 date_default_timezone_set('America/Mexico_City');
                 $hoy = date('Y-m-d');
                 
                 // Verificar si hay resultados y generar la tabla HTML
-                if (count($result) > 0) {
+                if ($result && $result->num_rows > 0) {
                     echo "<table border='1' id=\"myTable\">
                             <thead>
                                 <tr>
@@ -60,7 +38,7 @@ include '../Modulos/head.php';
                             </thead>
                             <tbody>";
                 
-                    foreach ($result as $row) {
+                    while ($row = $result->fetch_assoc()) {
                         $acti = $row["activo"] == 1 ? 'Sí' : 'No';
                         echo '<tr>';
                         echo '<td>' . htmlspecialchars($row['id']) . '</td>';
@@ -83,6 +61,7 @@ include '../Modulos/head.php';
                 } else {
                     echo "0 resultados";
                 }
+                $conn->close();
                 ?>
             </div>
             </div>

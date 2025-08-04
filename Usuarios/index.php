@@ -33,35 +33,14 @@ include '../Modulos/head.php';
             </thead>
             <tbody>
                 <?php
-                // Configuración de la conexión a la base de datos
-                $host = 'localhost';
-                $db = 'clini234_cerene';
-                $user = 'clini234_cerene';
-                $pass = 'tu{]ScpQ-Vcg';
-                $charset = 'utf8mb4';
-
-                $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-                $options = [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false,
-                ];
-
-                try {
-                    $pdo = new PDO($dsn, $user, $pass, $options);
-                } catch (\PDOException $e) {
-                    throw new \PDOException($e->getMessage(), (int) $e->getCode());
-                }
-
-                // Consulta a la base de datos
-                $sql = "SELECT usua.`id`, usua.`name`, `user`, `pass`, usua.`activo`, `registro`, `telefono`, `correo`, r.name AS rol 
-                    FROM `Usuarios` usua 
+                $sql = "SELECT usua.`id`, usua.`name`, `user`, `pass`, usua.`activo`, `registro`, `telefono`, `correo`, r.name AS rol
+                    FROM `Usuarios` usua
                     INNER JOIN Rol r ON r.id = usua.IdRol";
-                $stmt = $pdo->query($sql);
+                $result = $conn->query($sql);
 
                 $rol = isset($_SESSION['rol']) ? $_SESSION['rol'] : 0;
                 // Generación de filas de la tabla
-                while ($row = $stmt->fetch()) {
+                while ($row = $result->fetch_assoc()) {
                     $acti = $row["activo"] == 1 ? 'Sí' : 'No';
                     echo '<tr>';
                     echo '<td>' . htmlspecialchars($row['id']) . '</td>';

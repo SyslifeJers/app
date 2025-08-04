@@ -75,35 +75,14 @@ include '../Modulos/head.php';
             </thead>
             <tbody>
                 <?php
-                // Configuración de la conexión a la base de datos
-                $host = 'localhost';
-                $db = 'clini234_cerene';
-                $user = 'clini234_cerene';
-                $pass = 'tu{]ScpQ-Vcg';
-                $charset = 'utf8';
-
-                $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-                $options = [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false,
-                ];
-
-                try {
-                    $pdo = new PDO($dsn, $user, $pass, $options);
-                } catch (\PDOException $e) {
-                    throw new \PDOException($e->getMessage(), (int) $e->getCode());
-                }
-
-                // Consulta a la base de datos
-                $sql = "SELECT c.`id`, 
-				   c.`name`, 
-				   c.`activo`, 
-				   c.`telefono`, 
-				   GROUP_CONCAT(n.name) as Pacientes, 
-				   c.`fecha` as Registro 
-			FROM `Clientes` c
-			LEFT JOIN `nino` n ON n.`idtutor` = c.`id`";
+                $sql = "SELECT c.`id`,
+                                   c.`name`,
+                                   c.`activo`,
+                                   c.`telefono`,
+                                   GROUP_CONCAT(n.name) as Pacientes,
+                                   c.`fecha` as Registro
+                       FROM `Clientes` c
+                       LEFT JOIN `nino` n ON n.`idtutor` = c.`id`";
 
                 // Definir el filtro
                 $filter = isset($_POST['filter']) ? $_POST['filter'] : 'all';
@@ -119,10 +98,10 @@ include '../Modulos/head.php';
 
                 $sql .= " GROUP BY c.`id` DESC;";
 
-                $stmt = $pdo->query($sql);
+                $result = $conn->query($sql);
 
                 // Generación de filas de la tabla
-                while ($row = $stmt->fetch()) {
+                while ($row = $result->fetch_assoc()) {
                     $acti = $row["activo"] == 1 ? 'Sí' : 'No';
                     echo '<tr>';
                     echo '<td>' . htmlspecialchars($row['id']) . '</td>';
@@ -156,6 +135,8 @@ include '../Modulos/head.php';
                       </td>';
                     echo '</tr>';
                 }
+                $result->free();
+                $conn->close();
                 ?>
             </tbody>
         </table>
