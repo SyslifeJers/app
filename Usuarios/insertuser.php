@@ -13,20 +13,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         die("La contraseña debe tener al menos 6 caracteres.");
     }
 
-    // Conectar a la base de datos
-	$servername = "localhost";
-	$username = "clini234_cerene";
-	$password = "tu{]ScpQ-Vcg";
-	$dbname = "clini234_cerene";
-
-
-    // Crear conexión
-    $conn = new mysqli($servername, $username, $password, $dbname);
-
-    // Verificar conexión
-    if ($conn->connect_error) {
-        die("Conexión fallida: " . $conn->connect_error);
-    }
+    require_once __DIR__ . '/../conexion.php';
+    $conn = conectar();
 
     // Preparar y vincular
     $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, ?)");

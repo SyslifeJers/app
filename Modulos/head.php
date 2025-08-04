@@ -10,16 +10,9 @@ if (!isset($_SESSION['user']) || !isset($_SESSION['token'])) {
     header("Location: https://app.clinicacerene.com/login.php");
     exit();
 }
-    $db_host = 'localhost';
-    $db_name = 'clini234_cerene';
-    $db_user = 'clini234_cerene';
-    $db_pass = 'tu{]ScpQ-Vcg';
 
-$conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-
-if ($conn->connect_error) {
-    die("Conexión fallida: " . $conn->connect_error);
-}
+require_once __DIR__ . '/../conexion.php';
+$conn = conectar();
 
 // Verificar que el token en la sesión coincida con el token en la base de datos
 $stmt = $conn->prepare("SELECT token FROM Usuarios WHERE user = ?");

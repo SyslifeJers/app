@@ -33,46 +33,24 @@
                 <div class="table-responsive">
 
                     <?php
-                    // Configuración de la conexión a la base de datos
-                    $host = 'localhost';
-                    $db   = 'clini234_cerene';
-                    $user = 'clini234_cerene';
-                    $pass = 'tu{]ScpQ-Vcg';
-                    $charset = 'utf8mb4';
-                    
-                    $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-                    $options = [
-                        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-                        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                        PDO::ATTR_EMULATE_PREPARES   => false,
-                    ];
-                    
-                    try {
-                        $pdo = new PDO($dsn, $user, $pass, $options);
-                    } catch (\PDOException $e) {
-                        throw new \PDOException($e->getMessage(), (int)$e->getCode());
-                    }
-
-                    $sql = "SELECT ci.id, 
-                    n.name, 
-                    us.name as Psicologo, 
-                    ci.costo, 
-                    ci.Programado, 
-                    DATE(ci.Programado) as Fecha, 
-                    TIME(ci.Programado) as Hora, 
-                    ci.Tipo, 
+                    $sql = "SELECT ci.id,
+                    n.name,
+                    us.name as Psicologo,
+                    ci.costo,
+                    ci.Programado,
+                    DATE(ci.Programado) as Fecha,
+                    TIME(ci.Programado) as Hora,
+                    ci.Tipo,
                     es.name as Estatus,
                     ci.FormaPago
                     FROM Cita ci
                     INNER JOIN nino n ON n.id = ci.IdNino
                     INNER JOIN Usuarios us ON us.id = ci.IdUsuario
                     INNER JOIN Estatus es ON es.id = ci.Estatus
-                    WHERE (ci.Estatus = 1 OR ci.Estatus = 4) 
+                    WHERE (ci.Estatus = 1 OR ci.Estatus = 4)
                     ORDER BY ci.Programado ASC;";
 
-                    $stmt = $pdo->prepare($sql);
-                    $stmt->execute();
-                    $result = $stmt->fetchAll(); // Obtener todos los resultados como un array asociativo
+                    $result = $conn->query($sql);
                     
                     // Establecer zona horaria
                     date_default_timezone_set('America/Mexico_City');
@@ -84,7 +62,7 @@
                
 
                     // Verificar si hay resultados y generar la tabla HTML
-                    if (count($result) > 0) {
+                    if ($result && $result->num_rows > 0) {
                         echo "<table border='1' id='myTable'>
                                 <thead>
                                     <tr>
@@ -102,7 +80,7 @@
                                 </thead>
                                 <tbody>";
                         // Recorrer los resultados y mostrarlos en la tabla
-                        foreach ($result as $row)  {
+                        while ($row = $result->fetch_assoc())  {
                             echo "<tr>
                                     <td>{$row['Fecha']}</td>
                                     <td>{$row['id']}</td>

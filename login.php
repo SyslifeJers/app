@@ -4,18 +4,9 @@ session_start();
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $user = $_POST['user'];
     $pass = $_POST['pass'];
-	
-    $db_host = 'localhost';
-    $db_name = 'clini234_cerene';
-    $db_user = 'clini234_cerene';
-    $db_pass = 'tu{]ScpQ-Vcg';
 
-    // Conexión a la base de datos
-    $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-
-    if ($conn->connect_error) {
-        die("Conexión fallida: " . $conn->connect_error);
-    }
+    require_once 'conexion.php';
+    $conn = conectar();
 
     // Verificar las credenciales del usuario
     $stmt = $conn->prepare("SELECT id, pass, IdRol FROM Usuarios WHERE user = ?");

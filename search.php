@@ -3,24 +3,8 @@
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
-$host = 'localhost';
-$db = 'clini234_cerene';
-$user = 'clini234_cerene';
-$pass = 'tu{]ScpQ-Vcg';
-$charset = 'utf8mb4';
-
-$dsn = "mysql:host=$host;dbname=$db;charset=$charset";
-$options = [
-    PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    PDO::ATTR_EMULATE_PREPARES   => false,
-];
-
-try {
-    $pdo = new PDO($dsn, $user, $pass, $options);
-} catch (\PDOException $e) {
-    throw new \PDOException($e->getMessage(), (int)$e->getCode());
-}
+require_once 'conexion.php';
+$conn = conectar();
 
 // Preparar la consulta SQL con parámetros
 $search = isset($_GET['search']) ? $_GET['search'] : '';
@@ -30,9 +14,11 @@ $sql = "SELECT nin.id, nin.name, cli.name AS cliente_name
         WHERE nin.activo = 1 AND nin.name LIKE ?";
 
 // Usar prepared statements para evitar SQL injection
-$stmt = $pdo->prepare($sql);
-$stmt->execute(["%$search%"]);
-$results = $stmt->fetchAll();
+$stmt = $conn->prepare($sql);
+$like = "%{$search}%";
+$stmt->bind_param('s', $like);
+$stmt->execute();
+$results = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 // Mostrar los resultados en una tabla HTML
 if ($results) {
@@ -52,3 +38,7 @@ if ($results) {
 } else {
     echo "No se encontraron resultados.";
 }
+
+$stmt->close();
+$conn->close();
+?>

@@ -3,11 +3,7 @@
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
-// Datos de conexión a la base de datos
-$db_host = 'localhost';
-$db_name = 'clini234_cerene';
-$db_user = 'clini234_cerene';
-$db_pass = 'tu{]ScpQ-Vcg';
+require_once __DIR__ . '/../conexion.php';
 
 // Obtener el ID de la cita desde la URL
 $cita_id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
@@ -17,13 +13,7 @@ if ($cita_id == 0) {
 }
 
 try {
-    // Crear conexión
-    $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-    $conn->set_charset("utf8");
-    // Verificar conexión
-    if ($conn->connect_error) {
-        die("Conexión fallida: " . $conn->connect_error);
-    }
+    $conn = conectar();
 
     // Preparar la consulta
     $sql = "SELECT ci.id, 
