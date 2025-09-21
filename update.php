@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $tablaSolicitudes->free();
 
         // Verificar si ya existe una solicitud pendiente para la cita
-        $stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente'");
+        $stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
         $stmtPendiente->bind_param('i', $citaId);
         $stmtPendiente->execute();
         $stmtPendiente->bind_result($totalPendientes);
@@ -71,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit;
         }
 
-        $stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud) VALUES (?, ?, ?, 'pendiente', ?, ?)");
+        $stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'reprogramacion')");
         $stmtSolicitud->bind_param('issis', $citaId, $fechaAnterior, $fechaProgramada, $idUsuario, $fechaActual);
         $stmtSolicitud->execute();
         $stmtSolicitud->close();

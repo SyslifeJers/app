@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS `SolicitudReprogramacion` (
   `fecha_anterior` DATETIME NOT NULL,
   `nueva_fecha` DATETIME NOT NULL,
   `estatus` ENUM('pendiente','aprobada','rechazada') NOT NULL DEFAULT 'pendiente',
+  `tipo` ENUM('reprogramacion','cancelacion') NOT NULL DEFAULT 'reprogramacion',
   `solicitado_por` INT NOT NULL,
   `comentarios` TEXT NULL,
   `fecha_solicitud` DATETIME NOT NULL,
