@@ -1,5 +1,8 @@
 <?php
+session_start();
+
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../Modulos/logger.php';
 $conn = conectar();
 
 if (!isset($_GET['id']) || empty($_GET['id'])) {
@@ -27,6 +30,15 @@ $stmt->bind_param("ii", $nuevoActivo, $id);
 $success = $stmt->execute();
 
 if ($success) {
+    registrarLog(
+        $conn,
+        $_SESSION['id'] ?? null,
+        'clientes',
+        $nuevoActivo === 1 ? 'activar' : 'desactivar',
+        sprintf('Se %s el cliente #%d.', $nuevoActivo === 1 ? 'activó' : 'desactivó', $id),
+        'Cliente',
+        (string) $id
+    );
     echo json_encode(['success' => true]);
 } else {
     echo json_encode(['success' => false, 'error' => 'Failed to execute the query']);

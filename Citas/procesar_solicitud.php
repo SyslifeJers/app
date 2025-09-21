@@ -3,6 +3,7 @@ ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
 require_once '../conexion.php';
+require_once __DIR__ . '/../Modulos/logger.php';
 session_start();
 
 if (!isset($_SESSION['user']) || !isset($_SESSION['token'])) {
@@ -94,6 +95,15 @@ try {
             $stmtFinalizar->close();
 
             $conn->commit();
+            registrarLog(
+                $conn,
+                $idUsuario,
+                'citas',
+                'aprobar_solicitud_cancelacion',
+                sprintf('La solicitud #%d de cancelación fue aprobada y la cita #%d se canceló.', $solicitudId, $citaId),
+                'SolicitudReprogramacion',
+                (string) $solicitudId
+            );
             $_SESSION['solicitud_mensaje'] = 'Solicitud de cancelación aprobada y cita cancelada correctamente.';
             $_SESSION['solicitud_tipo'] = 'success';
         } else {
@@ -107,6 +117,15 @@ try {
             $stmtRechazar->close();
 
             $conn->commit();
+            registrarLog(
+                $conn,
+                $idUsuario,
+                'citas',
+                'rechazar_solicitud_cancelacion',
+                sprintf('La solicitud #%d de cancelación fue rechazada para la cita #%d.', $solicitudId, $citaId),
+                'SolicitudReprogramacion',
+                (string) $solicitudId
+            );
             $_SESSION['solicitud_mensaje'] = 'Solicitud de cancelación rechazada correctamente.';
             $_SESSION['solicitud_tipo'] = 'info';
         }
@@ -138,6 +157,15 @@ try {
             $stmtFinalizar->close();
 
             $conn->commit();
+            registrarLog(
+                $conn,
+                $idUsuario,
+                'citas',
+                'aprobar_solicitud_reprogramacion',
+                sprintf('La solicitud #%d de reprogramación fue aprobada y la cita #%d se reprogramó a %s.', $solicitudId, $citaId, $nuevaFecha),
+                'SolicitudReprogramacion',
+                (string) $solicitudId
+            );
             $_SESSION['solicitud_mensaje'] = 'Solicitud aprobada y cita reprogramada correctamente.';
             $_SESSION['solicitud_tipo'] = 'success';
         } else {
@@ -151,6 +179,15 @@ try {
             $stmtRechazar->close();
 
             $conn->commit();
+            registrarLog(
+                $conn,
+                $idUsuario,
+                'citas',
+                'rechazar_solicitud_reprogramacion',
+                sprintf('La solicitud #%d de reprogramación fue rechazada para la cita #%d.', $solicitudId, $citaId),
+                'SolicitudReprogramacion',
+                (string) $solicitudId
+            );
             $_SESSION['solicitud_mensaje'] = 'Solicitud rechazada correctamente.';
             $_SESSION['solicitud_tipo'] = 'info';
         }

@@ -14,6 +14,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     require_once 'conexion.php';
+    require_once __DIR__ . '/Modulos/logger.php';
     $conn = conectar();
     $conn->set_charset('utf8');
 
@@ -44,7 +45,24 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $stmt = $conn->prepare($sql);
     $stmt->bind_param('iiisdsis', $idCliente, $idPsicologo, $idGenerado, $fechaActual, $costo, $fechaCita, $estatus, $tipo);
     $stmt->execute();
+    $nuevaCitaId = $conn->insert_id;
     $stmt->close();
+
+    registrarLog(
+        $conn,
+        $idGenerado,
+        'citas',
+        'crear',
+        sprintf(
+            'Se creó la cita #%d para el paciente %d con el psicólogo %d programada el %s.',
+            $nuevaCitaId,
+            $idCliente,
+            $idPsicologo,
+            $fechaCita
+        ),
+        'Cita',
+        (string) $nuevaCitaId
+    );
 
     echo json_encode(['success' => true]);
     $conn->close();

@@ -1,5 +1,8 @@
 <?php
+session_start();
+
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../Modulos/logger.php';
 $conn = conectar();
 
 $id = $_POST['id'];
@@ -13,6 +16,18 @@ $IdRol = $_POST['editRol'];
 $stmt = $conn->prepare("UPDATE Usuarios SET name = ?, user = ?, pass = ?, telefono = ?, correo = ?, IdRol = ? WHERE id = ?");
 $stmt->bind_param("sssssii", $name, $user, $pass, $telefono, $correo, $IdRol, $id);
 $success = $stmt->execute();
+
+if ($success) {
+    registrarLog(
+        $conn,
+        $_SESSION['id'] ?? null,
+        'usuarios',
+        'actualizar',
+        sprintf('Se actualizaron los datos del usuario #%d (%s).', $id, $user),
+        'Usuario',
+        (string) $id
+    );
+}
 
 echo json_encode(['success' => $success]);
 
