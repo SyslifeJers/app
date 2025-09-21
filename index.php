@@ -7,6 +7,10 @@ $mensajeReprogramacion = $_SESSION['reprogramacion_mensaje'] ?? null;
 $tipoReprogramacion = $_SESSION['reprogramacion_tipo'] ?? 'success';
 unset($_SESSION['reprogramacion_mensaje'], $_SESSION['reprogramacion_tipo']);
 
+$mensajeCancelacion = $_SESSION['cancelacion_mensaje'] ?? null;
+$tipoCancelacion = $_SESSION['cancelacion_tipo'] ?? 'success';
+unset($_SESSION['cancelacion_mensaje'], $_SESSION['cancelacion_tipo']);
+
 $tablaSolicitudesExiste = false;
 if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")) {
     $tablaSolicitudesExiste = $resultadoTabla->num_rows > 0;
@@ -20,6 +24,22 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
         $stmtPendientes->bind_result($pendientesReprogramacion);
         $stmtPendientes->fetch();
         $stmtPendientes->close();
+    }
+}
+
+$tablaSolicitudesCancelacionExiste = false;
+if ($resultadoTablaCancelacion = $conn->query("SHOW TABLES LIKE 'SolicitudCancelacion'")) {
+    $tablaSolicitudesCancelacionExiste = $resultadoTablaCancelacion->num_rows > 0;
+    $resultadoTablaCancelacion->free();
+}
+
+$pendientesCancelacion = 0;
+if ($tablaSolicitudesCancelacionExiste && in_array($rolUsuario, [3, 4])) {
+    if ($stmtPendientesCancelacion = $conn->prepare("SELECT COUNT(*) FROM SolicitudCancelacion WHERE estatus = 'pendiente'")) {
+        $stmtPendientesCancelacion->execute();
+        $stmtPendientesCancelacion->bind_result($pendientesCancelacion);
+        $stmtPendientesCancelacion->fetch();
+        $stmtPendientesCancelacion->close();
     }
 }
 ?>
@@ -38,6 +58,13 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
           </div>
         <?php endif; ?>
 
+        <?php if ($mensajeCancelacion): ?>
+          <div class="alert alert-<?php echo htmlspecialchars($tipoCancelacion, ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
+            <?php echo htmlspecialchars($mensajeCancelacion, ENT_QUOTES, 'UTF-8'); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        <?php endif; ?>
+
         <?php if (in_array($rolUsuario, [3, 4]) && $pendientesReprogramacion > 0): ?>
           <div class="alert alert-warning alert-dismissible fade show" role="alert">
             Hay <?php echo (int) $pendientesReprogramacion; ?> solicitud(es) de reprogramación pendientes.
@@ -45,12 +72,23 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
         <?php endif; ?>
+
+        <?php if (in_array($rolUsuario, [3, 4]) && $pendientesCancelacion > 0): ?>
+          <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            Hay <?php echo (int) $pendientesCancelacion; ?> solicitud(es) de cancelación pendientes.
+            <a href="/Citas/solicitudes_cancelacion.php" class="alert-link">Revisar solicitudes</a>.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        <?php endif; ?>
         <div class="table-responsive">
 
           <?php
           // Consulta SQL
-          $selectSolicitudes = $tablaSolicitudesExiste ? ",\n       COALESCE(sr.solicitudesPendientes, 0) as solicitudesPendientes" : ",\n       0 as solicitudesPendientes";
-          $joinSolicitudes = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sr ON sr.cita_id = ci.id\n" : '';
+          $selectSolicitudesReprogramacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr.solicitudesPendientes, 0) as solicitudesReprogramacionPendientes" : ",\n       0 as solicitudesReprogramacionPendientes";
+          $joinSolicitudesReprogramacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sr ON sr.cita_id = ci.id\n" : '';
+
+          $selectSolicitudesCancelacion = $tablaSolicitudesCancelacionExiste ? ",\n       COALESCE(sc.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
+          $joinSolicitudesCancelacion = $tablaSolicitudesCancelacionExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudCancelacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sc ON sc.cita_id = ci.id\n" : '';
 
           $sql = "SELECT ci.id,
        n.name,
@@ -60,12 +98,12 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
        ci.Tipo,
-       es.name as Estatus" . $selectSolicitudes . "
+       es.name as Estatus" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
 FROM Cita ci
 INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
 INNER JOIN Estatus es ON es.id = ci.Estatus
-" . $joinSolicitudes . "
+" . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
 WHERE ci.Estatus = 2 OR ci.Estatus = 3
 ORDER BY ci.Programado ASC;";
 
@@ -87,25 +125,39 @@ ORDER BY ci.Programado ASC;";
                 <th>Hora</th>
                 <th>Tipo</th>
                 <th>Estatus</th>
-                <th>Solicitudes</th>
+                <th>Solicitudes de reprogramación</th>
+                <th>Solicitudes de cancelación</th>
                 <th>Opciones</th>
             </tr>    </thead>
                         <tbody>";
             // Recorrer los resultados y mostrarlos en la tabla
 
             while ($row = $result->fetch_assoc()) {
-              $pendientes = isset($row['solicitudesPendientes']) ? (int) $row['solicitudesPendientes'] : 0;
-              $textoBadge = $pendientes > 0 ? 'Pendiente (' . $pendientes . ')' : 'Sin solicitudes';
-              $badgeClass = $pendientes > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
+              $pendientesReprogramacion = isset($row['solicitudesReprogramacionPendientes']) ? (int) $row['solicitudesReprogramacionPendientes'] : 0;
+              $textoBadgeReprogramacion = $pendientesReprogramacion > 0 ? 'Pendiente (' . $pendientesReprogramacion . ')' : 'Sin solicitudes';
+              $badgeClassReprogramacion = $pendientesReprogramacion > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
+
+              $pendientesCancelacion = isset($row['solicitudesCancelacionPendientes']) ? (int) $row['solicitudesCancelacionPendientes'] : 0;
+              $textoBadgeCancelacion = $pendientesCancelacion > 0 ? 'Pendiente (' . $pendientesCancelacion . ')' : 'Sin solicitudes';
+              $badgeClassCancelacion = $pendientesCancelacion > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
 
               $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
               $botones = [];
-              if ($rolUsuario == 1 && $pendientes > 0) {
+              if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
                 $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
               } else {
                 $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
               }
-              $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
+
+              if ($rolUsuario == 1) {
+                if ($pendientesCancelacion > 0) {
+                  $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Cancelación pendiente</button>';
+                } else {
+                  $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Solicitar cancelación</button>';
+                }
+              } else {
+                $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
+              }
 
               if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
                 $botones[] = '<button class="btn btn-success btn-sm" onclick=" actualizarCitaPago(' . $row['id'] . ',4)">Pagar</button>';
@@ -120,7 +172,8 @@ ORDER BY ci.Programado ASC;";
               echo '<td>' . $row['Hora'] . '</td>';
               echo '<td>' . $row['Tipo'] . '</td>';
               echo '<td>' . $row['Estatus'] . '</td>';
-              echo '<td><span class="' . $badgeClass . '">' . $textoBadge . '</span></td>';
+              echo '<td><span class="' . $badgeClassReprogramacion . '">' . $textoBadgeReprogramacion . '</span></td>';
+              echo '<td><span class="' . $badgeClassCancelacion . '">' . $textoBadgeCancelacion . '</span></td>';
               echo '<td>' . implode(' ', $botones) . '</td>';
               echo '</tr>';
             }
