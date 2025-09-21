@@ -205,7 +205,9 @@ include '../Modulos/footer.php';
 
                 if (rol !== 3) {
                     $('#IdRol option[value="3"]').remove();
+                    $('#IdRol option[value="4"]').remove();
                     $('#editRol option[value="3"]').remove();
+                    $('#editRol option[value="4"]').remove();
                 }
             },
             error: function () {

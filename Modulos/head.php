@@ -120,9 +120,15 @@ if ($_SESSION['token'] !== $db_token) {
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Citas <span class="sr-only"></span></a>
       </li>
       <?php $rol = isset($_SESSION['rol']) ? $_SESSION['rol'] : 0;
-      
+
+      if ($rol == 3 || $rol == 4) {?>
+                   <li class="nav-item ">
+        <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
+      </li>
+      <?php }
+
       if ($rol == 3) {?>
-	  	   <li class="nav-item ">
+                   <li class="nav-item ">
         <a class="nav-link" href="/Reportes/index.php"><i class="fas fa-chart-pie"></i>Reportes <span class="sr-only"></span></a>
       </li>
       <li class="nav-item ">

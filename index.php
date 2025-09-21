@@ -1,8 +1,28 @@
 <?php
 
 include 'Modulos/head.php';
-?>
 
+$rolUsuario = $_SESSION['rol'] ?? 0;
+$mensajeReprogramacion = $_SESSION['reprogramacion_mensaje'] ?? null;
+$tipoReprogramacion = $_SESSION['reprogramacion_tipo'] ?? 'success';
+unset($_SESSION['reprogramacion_mensaje'], $_SESSION['reprogramacion_tipo']);
+
+$tablaSolicitudesExiste = false;
+if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")) {
+    $tablaSolicitudesExiste = $resultadoTabla->num_rows > 0;
+    $resultadoTabla->free();
+}
+
+$pendientesReprogramacion = 0;
+if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
+    if ($stmtPendientes = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE estatus = 'pendiente'")) {
+        $stmtPendientes->execute();
+        $stmtPendientes->bind_result($pendientesReprogramacion);
+        $stmtPendientes->fetch();
+        $stmtPendientes->close();
+    }
+}
+?>
 
 <div class="row">
   <div class="col-md-12">
@@ -11,23 +31,41 @@ include 'Modulos/head.php';
         <h4 class="card-title">Citas</h4>
       </div>
       <div class="card-body">
+        <?php if ($mensajeReprogramacion): ?>
+          <div class="alert alert-<?php echo htmlspecialchars($tipoReprogramacion, ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
+            <?php echo htmlspecialchars($mensajeReprogramacion, ENT_QUOTES, 'UTF-8'); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        <?php endif; ?>
+
+        <?php if (in_array($rolUsuario, [3, 4]) && $pendientesReprogramacion > 0): ?>
+          <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            Hay <?php echo (int) $pendientesReprogramacion; ?> solicitud(es) de reprogramación pendientes.
+            <a href="/Citas/solicitudes.php" class="alert-link">Revisar solicitudes</a>.
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        <?php endif; ?>
         <div class="table-responsive">
 
           <?php
           // Consulta SQL
-          $sql = "SELECT ci.id, 
-       n.name, 
-       us.name as Psicologo, 
-       ci.costo, 
-       ci.Programado, 
-       DATE(ci.Programado) as Fecha, 
-       TIME(ci.Programado) as Hora, 
-       ci.Tipo, 
-       es.name as Estatus
+          $selectSolicitudes = $tablaSolicitudesExiste ? ",\n       COALESCE(sr.solicitudesPendientes, 0) as solicitudesPendientes" : ",\n       0 as solicitudesPendientes";
+          $joinSolicitudes = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sr ON sr.cita_id = ci.id\n" : '';
+
+          $sql = "SELECT ci.id,
+       n.name,
+       us.name as Psicologo,
+       ci.costo,
+       ci.Programado,
+       DATE(ci.Programado) as Fecha,
+       TIME(ci.Programado) as Hora,
+       ci.Tipo,
+       es.name as Estatus" . $selectSolicitudes . "
 FROM Cita ci
 INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
 INNER JOIN Estatus es ON es.id = ci.Estatus
+" . $joinSolicitudes . "
 WHERE ci.Estatus = 2 OR ci.Estatus = 3
 ORDER BY ci.Programado ASC;";
 
@@ -38,43 +76,53 @@ ORDER BY ci.Programado ASC;";
           // Verificar si hay resultados y generar la tabla HTML
           if ($result->num_rows > 0) {
             echo "<table border='1' id=\"myTable\" >
-	    <thead>
+            <thead>
             <tr>
                 <th>Fecha</th>
                 <th>Id</th>
                 <th>Paciente</th>
                 <th>Psicólogo</th>
                 <th>Costo</th>
-                
+
                 <th>Hora</th>
                 <th>Tipo</th>
                 <th>Estatus</th>
+                <th>Solicitudes</th>
                 <th>Opciones</th>
             </tr>    </thead>
-			<tbody>";
+                        <tbody>";
             // Recorrer los resultados y mostrarlos en la tabla
-          
-            while ($row = $result->fetch_assoc()) {
-              echo "
-		<tr>
-                    <td>" . $row["Fecha"] . "</td>
-                <td>" . $row["id"] . "</td>
-                <td>" . $row["name"] . "</td>
-                <td>" . $row["Psicologo"] . "</td>
-                <td>" . $row["costo"] . "</td>
 
-                <td>" . $row["Hora"] . "</td>
-                <td>" . $row["Tipo"] . "</td>
-                <td>" . $row["Estatus"] . "</td>
-                <td>
-					<button class=\"btn btn-primary btn-sm\" onclick=\"Reprogramar(" . $row['id'] . ")\">Reprogramar</button>
-					<button class=\"btn btn-danger btn-sm\" onclick=\"actualizarCita(" . $row['id'] . ",1)\">Cancelar</button> ";
-              if (date('Y-m-d', strtotime($row["Fecha"])) == $hoy && ($row["Estatus"] == "Creada" || $row["Estatus"] == "Reprogramado")) {
-                echo "<button class=\"btn btn-success btn-sm\" onclick=\" actualizarCitaPago(" . $row['id'] . ",4)\">Pagar</button>";
+            while ($row = $result->fetch_assoc()) {
+              $pendientes = isset($row['solicitudesPendientes']) ? (int) $row['solicitudesPendientes'] : 0;
+              $textoBadge = $pendientes > 0 ? 'Pendiente (' . $pendientes . ')' : 'Sin solicitudes';
+              $badgeClass = $pendientes > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
+
+              $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
+              $botones = [];
+              if ($rolUsuario == 1 && $pendientes > 0) {
+                $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
+              } else {
+                $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
               }
-              echo "
-				</td>
-              </tr>";
+              $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
+
+              if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
+                $botones[] = '<button class="btn btn-success btn-sm" onclick=" actualizarCitaPago(' . $row['id'] . ',4)">Pagar</button>';
+              }
+
+              echo '<tr>';
+              echo '<td>' . $row['Fecha'] . '</td>';
+              echo '<td>' . $row['id'] . '</td>';
+              echo '<td>' . $row['name'] . '</td>';
+              echo '<td>' . $row['Psicologo'] . '</td>';
+              echo '<td>' . $row['costo'] . '</td>';
+              echo '<td>' . $row['Hora'] . '</td>';
+              echo '<td>' . $row['Tipo'] . '</td>';
+              echo '<td>' . $row['Estatus'] . '</td>';
+              echo '<td><span class="' . $badgeClass . '">' . $textoBadge . '</span></td>';
+              echo '<td>' . implode(' ', $botones) . '</td>';
+              echo '</tr>';
             }
             echo "</tbody></table>";
           } else {
@@ -260,7 +308,10 @@ ORDER BY ci.Programado ASC;";
             <label for="fechaProgramada" class="form-label">Nueva Fecha Programada</label>
             <input type="datetime-local" class="form-control" id="fechaProgramada" name="fechaProgramada" required>
           </div>
-          <button type="submit" class="btn btn-primary">Actualizar</button>
+          <div class="alert alert-info" id="solicitudAviso" style="display:none;">
+            La solicitud será enviada al coordinador para su aprobación.
+          </div>
+          <button type="submit" class="btn btn-primary" id="updateSubmitButton">Actualizar</button>
         </form>
       </div>
     </div>
@@ -271,6 +322,7 @@ include 'Modulos/footer.php';
 ?>
 
 <script>
+  const ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;
   function actualizarCitaPago(idCita, estatus) {
     // Mostrar el modal
     const modal = new bootstrap.Modal(document.getElementById('ModalTipoPago'), {
@@ -343,6 +395,25 @@ function enviarFormularioJSON() {
   function Reprogramar(citaId) {
     // Asigna el ID de la cita al campo del formulario
     document.getElementById('citaId').value = citaId;
+    const fechaProgramadaInput = document.getElementById('fechaProgramada');
+    if (fechaProgramadaInput) {
+      fechaProgramadaInput.value = '';
+    }
+
+    const modalTitle = document.getElementById('updateModalLabel');
+    const submitButton = document.getElementById('updateSubmitButton');
+    const aviso = document.getElementById('solicitudAviso');
+
+    if (ES_VENTAS) {
+      if (modalTitle) modalTitle.textContent = 'Solicitar reprogramación';
+      if (submitButton) submitButton.textContent = 'Enviar solicitud';
+      if (aviso) aviso.style.display = 'block';
+    } else {
+      if (modalTitle) modalTitle.textContent = 'Actualizar Fecha de Cita';
+      if (submitButton) submitButton.textContent = 'Actualizar';
+      if (aviso) aviso.style.display = 'none';
+    }
+
     // Abre el modal
     var updateModal = new bootstrap.Modal(document.getElementById('updateModal'));
     updateModal.show();
