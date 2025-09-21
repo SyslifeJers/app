@@ -18,28 +18,19 @@ if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")
 }
 
 $pendientesReprogramacion = 0;
-if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
-    if ($stmtPendientes = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE estatus = 'pendiente'")) {
-        $stmtPendientes->execute();
-        $stmtPendientes->bind_result($pendientesReprogramacion);
-        $stmtPendientes->fetch();
-        $stmtPendientes->close();
-    }
-}
-
-$tablaSolicitudesCancelacionExiste = false;
-if ($resultadoTablaCancelacion = $conn->query("SHOW TABLES LIKE 'SolicitudCancelacion'")) {
-    $tablaSolicitudesCancelacionExiste = $resultadoTablaCancelacion->num_rows > 0;
-    $resultadoTablaCancelacion->free();
-}
-
 $pendientesCancelacion = 0;
-if ($tablaSolicitudesCancelacionExiste && in_array($rolUsuario, [3, 4])) {
-    if ($stmtPendientesCancelacion = $conn->prepare("SELECT COUNT(*) FROM SolicitudCancelacion WHERE estatus = 'pendiente'")) {
-        $stmtPendientesCancelacion->execute();
-        $stmtPendientesCancelacion->bind_result($pendientesCancelacion);
-        $stmtPendientesCancelacion->fetch();
-        $stmtPendientesCancelacion->close();
+if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
+    if ($stmtPendientes = $conn->prepare("SELECT tipo, COUNT(*) FROM SolicitudReprogramacion WHERE estatus = 'pendiente' GROUP BY tipo")) {
+        $stmtPendientes->execute();
+        $stmtPendientes->bind_result($tipoSolicitud, $totalPendiente);
+        while ($stmtPendientes->fetch()) {
+            if ($tipoSolicitud === 'cancelacion') {
+                $pendientesCancelacion = (int) $totalPendiente;
+            } elseif ($tipoSolicitud === 'reprogramacion') {
+                $pendientesReprogramacion = (int) $totalPendiente;
+            }
+        }
+        $stmtPendientes->close();
     }
 }
 ?>
@@ -76,7 +67,7 @@ if ($tablaSolicitudesCancelacionExiste && in_array($rolUsuario, [3, 4])) {
         <?php if (in_array($rolUsuario, [3, 4]) && $pendientesCancelacion > 0): ?>
           <div class="alert alert-warning alert-dismissible fade show" role="alert">
             Hay <?php echo (int) $pendientesCancelacion; ?> solicitud(es) de cancelación pendientes.
-            <a href="/Citas/solicitudes_cancelacion.php" class="alert-link">Revisar solicitudes</a>.
+            <a href="/Citas/solicitudes.php?tipo=cancelacion" class="alert-link">Revisar solicitudes</a>.
             <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
           </div>
         <?php endif; ?>
@@ -84,11 +75,11 @@ if ($tablaSolicitudesCancelacionExiste && in_array($rolUsuario, [3, 4])) {
 
           <?php
           // Consulta SQL
-          $selectSolicitudesReprogramacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr.solicitudesPendientes, 0) as solicitudesReprogramacionPendientes" : ",\n       0 as solicitudesReprogramacionPendientes";
-          $joinSolicitudesReprogramacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sr ON sr.cita_id = ci.id\n" : '';
+          $selectSolicitudesReprogramacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_reprogramacion.solicitudesPendientes, 0) as solicitudesReprogramacionPendientes" : ",\n       0 as solicitudesReprogramacionPendientes";
+          $joinSolicitudesReprogramacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'reprogramacion'\n    GROUP BY cita_id\n) sr_reprogramacion ON sr_reprogramacion.cita_id = ci.id\n" : '';
 
-          $selectSolicitudesCancelacion = $tablaSolicitudesCancelacionExiste ? ",\n       COALESCE(sc.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
-          $joinSolicitudesCancelacion = $tablaSolicitudesCancelacionExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudCancelacion\n    WHERE estatus = 'pendiente'\n    GROUP BY cita_id\n) sc ON sc.cita_id = ci.id\n" : '';
+          $selectSolicitudesCancelacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_cancelacion.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
+          $joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
 
           $sql = "SELECT ci.id,
        n.name,

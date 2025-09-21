@@ -126,7 +126,7 @@ if ($_SESSION['token'] !== $db_token) {
         <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
       </li>
       <li class="nav-item ">
-        <a class="nav-link" href="/Citas/solicitudes_cancelacion.php"><i class="fas fa-ban"></i>Solicitudes de cancelación <span class="sr-only"></span></a>
+        <a class="nav-link" href="/Citas/solicitudes.php?tipo=cancelacion"><i class="fas fa-ban"></i>Solicitudes de cancelación <span class="sr-only"></span></a>
       </li>
       <?php }
 

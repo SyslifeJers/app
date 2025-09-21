@@ -27,21 +27,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
+    $fechaProgramadaActual = null;
+    if ($stmtDatosCita = $conn->prepare('SELECT Programado FROM Cita WHERE id = ?')) {
+        $stmtDatosCita->bind_param('i', $citaId);
+        $stmtDatosCita->execute();
+        $stmtDatosCita->bind_result($fechaProgramadaActual);
+        $stmtDatosCita->fetch();
+        $stmtDatosCita->close();
+    }
+
+    if (!$fechaProgramadaActual) {
+        $_SESSION['cancelacion_mensaje'] = 'No fue posible localizar la cita seleccionada.';
+        $_SESSION['cancelacion_tipo'] = 'danger';
+        header('Location: index.php');
+        exit;
+    }
+
     if ($rolUsuario === $ROL_VENTAS) {
-        $tablaCancelaciones = $conn->query("SHOW TABLES LIKE 'SolicitudCancelacion'");
-        if (!($tablaCancelaciones instanceof mysqli_result) || $tablaCancelaciones->num_rows === 0) {
-            if ($tablaCancelaciones instanceof mysqli_result) {
-                $tablaCancelaciones->free();
+        $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
+        if (!($tablaSolicitudes instanceof mysqli_result) || $tablaSolicitudes->num_rows === 0) {
+            if ($tablaSolicitudes instanceof mysqli_result) {
+                $tablaSolicitudes->free();
             }
-            $_SESSION['cancelacion_mensaje'] = 'El módulo de solicitudes de cancelación no está disponible. Contacta al administrador.';
+            $_SESSION['cancelacion_mensaje'] = 'El módulo de solicitudes no está disponible. Contacta al administrador.';
             $_SESSION['cancelacion_tipo'] = 'danger';
             header('Location: index.php');
             exit;
         }
-        $tablaCancelaciones->free();
+        $tablaSolicitudes->free();
 
         $totalPendientes = 0;
-        if ($stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudCancelacion WHERE cita_id = ? AND estatus = 'pendiente'")) {
+        if ($stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
             $stmtPendiente->bind_param('i', $citaId);
             $stmtPendiente->execute();
             $stmtPendiente->bind_result($totalPendientes);
@@ -56,8 +72,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudCancelacion (cita_id, estatus, solicitado_por, fecha_solicitud) VALUES (?, 'pendiente', ?, ?)")) {
-            $stmtSolicitud->bind_param('iis', $citaId, $idUsuario, $fechaActual);
+        if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'cancelacion')")) {
+            $stmtSolicitud->bind_param('issis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual);
             $stmtSolicitud->execute();
             $stmtSolicitud->close();
             $_SESSION['cancelacion_mensaje'] = 'Se envió la solicitud de cancelación para aprobación.';
@@ -92,10 +108,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tablaSolicitudes->free();
 
             $comentarioCancelacion = 'Solicitud cerrada automáticamente por cancelación de la cita.';
-            $stmtCancelar = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'rechazada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente'");
+            $stmtCancelar = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'rechazada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
             $stmtCancelar->bind_param('isssi', $idUsuario, $fechaActual, $comentarioCancelacion, $comentarioCancelacion, $citaId);
             $stmtCancelar->execute();
             $stmtCancelar->close();
+
+            $comentarioAprobacion = 'Solicitud de cancelación aprobada automáticamente al cancelar la cita.';
+            if ($stmtCerrarCancelacion = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
+                $stmtCerrarCancelacion->bind_param('isssi', $idUsuario, $fechaActual, $comentarioAprobacion, $comentarioAprobacion, $citaId);
+                $stmtCerrarCancelacion->execute();
+                $stmtCerrarCancelacion->close();
+            }
         } elseif ($tablaSolicitudes instanceof mysqli_result) {
             $tablaSolicitudes->free();
         }
@@ -105,10 +128,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tablaSolicitudesCancelacion->free();
 
             $comentarioAprobacion = 'Solicitud de cancelación aprobada automáticamente al cancelar la cita.';
-            if ($stmtCerrarCancelacion = $conn->prepare("UPDATE SolicitudCancelacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente'")) {
-                $stmtCerrarCancelacion->bind_param('isssi', $idUsuario, $fechaActual, $comentarioAprobacion, $comentarioAprobacion, $citaId);
-                $stmtCerrarCancelacion->execute();
-                $stmtCerrarCancelacion->close();
+            if ($stmtCerrarCancelacionAntiguo = $conn->prepare("UPDATE SolicitudCancelacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente'")) {
+                $stmtCerrarCancelacionAntiguo->bind_param('isssi', $idUsuario, $fechaActual, $comentarioAprobacion, $comentarioAprobacion, $citaId);
+                $stmtCerrarCancelacionAntiguo->execute();
+                $stmtCerrarCancelacionAntiguo->close();
             }
         } elseif ($tablaSolicitudesCancelacion instanceof mysqli_result) {
             $tablaSolicitudesCancelacion->free();
