@@ -1,5 +1,8 @@
 <?php
+session_start();
+
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../Modulos/logger.php';
 $conn = conectar();
 
 if (!isset($_GET['id']) || empty($_GET['id'])) {
@@ -23,6 +26,15 @@ if ($user) {
     $success = $stmt->execute();
 
     if ($success) {
+        registrarLog(
+            $conn,
+            $_SESSION['id'] ?? null,
+            'usuarios',
+            $new_activo === 1 ? 'activar' : 'desactivar',
+            sprintf('Se %s el usuario #%d.', $new_activo === 1 ? 'activó' : 'desactivó', $id),
+            'Usuario',
+            (string) $id
+        );
         echo json_encode(['success' => true, 'new_activo' => $new_activo]);
     } else {
         echo json_encode(['success' => false, 'error' => 'Failed to execute the update query']);

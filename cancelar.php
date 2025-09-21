@@ -4,6 +4,7 @@ ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'conexion.php';
+require_once __DIR__ . '/Modulos/logger.php';
 $conn = conectar();
 session_start();
 
@@ -75,7 +76,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'cancelacion')")) {
             $stmtSolicitud->bind_param('issis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual);
             $stmtSolicitud->execute();
+            $solicitudId = $conn->insert_id;
             $stmtSolicitud->close();
+
+            registrarLog(
+                $conn,
+                $idUsuario,
+                'citas',
+                'solicitud_cancelacion',
+                sprintf('Solicitud de cancelación para la cita #%d programada el %s.', $citaId, $fechaProgramadaActual),
+                'SolicitudReprogramacion',
+                (string) $solicitudId
+            );
             $_SESSION['cancelacion_mensaje'] = 'Se envió la solicitud de cancelación para aprobación.';
             $_SESSION['cancelacion_tipo'] = 'success';
         } else {
@@ -101,6 +113,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmtInsert->bind_param('siii', $fechaActual, $estatus, $citaId, $idUsuario);
     $stmtInsert->execute();
     $stmtInsert->close();
+
+    $accionLog = 'actualizar_estatus';
+    $descripcionLog = sprintf('La cita #%d cambió su estatus a %d.', $citaId, $estatus);
+
+    if ($estatus === 1) {
+        $accionLog = 'cancelar';
+        $descripcionLog = sprintf('La cita #%d fue cancelada.', $citaId);
+    } elseif ($estatus === 4) {
+        $accionLog = 'registrar_pago';
+        $descripcionLog = sprintf('Se registró el pago de la cita #%d.', $citaId);
+    }
+
+    if ($formaPago !== null && $formaPago !== '') {
+        $descripcionLog .= sprintf(' Forma de pago: %s.', $formaPago);
+    }
+
+    registrarLog(
+        $conn,
+        $idUsuario,
+        'citas',
+        $accionLog,
+        $descripcionLog,
+        'Cita',
+        (string) $citaId
+    );
 
     if ($estatus === 1) {
         $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");

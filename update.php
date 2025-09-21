@@ -4,6 +4,7 @@ ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'conexion.php';
+require_once __DIR__ . '/Modulos/logger.php';
 $conn = conectar();
 session_start();
 
@@ -74,7 +75,23 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'reprogramacion')");
         $stmtSolicitud->bind_param('issis', $citaId, $fechaAnterior, $fechaProgramada, $idUsuario, $fechaActual);
         $stmtSolicitud->execute();
+        $solicitudId = $conn->insert_id;
         $stmtSolicitud->close();
+
+        registrarLog(
+            $conn,
+            $idUsuario,
+            'citas',
+            'solicitud_reprogramacion',
+            sprintf(
+                'Solicitud de reprogramación para la cita #%d. Fecha anterior: %s. Nueva fecha solicitada: %s.',
+                $citaId,
+                $fechaAnterior,
+                $fechaProgramada
+            ),
+            'SolicitudReprogramacion',
+            (string) $solicitudId
+        );
 
         $_SESSION['reprogramacion_mensaje'] = 'Se envió la solicitud de reprogramación para aprobación.';
         $_SESSION['reprogramacion_tipo'] = 'success';
@@ -93,6 +110,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     $stmtInsert->execute();
     $stmtInsert->close();
 
+    registrarLog(
+        $conn,
+        $idUsuario,
+        'citas',
+        'reprogramar',
+        sprintf('La cita #%d fue reprogramada para %s.', $citaId, $fechaProgramada),
+        'Cita',
+        (string) $citaId
+    );
+
     // Si la actualización proviene de una solicitud, marcarla como atendida automáticamente
     if (!empty($_POST['solicitudId']) && $rolUsuario === $ROL_COORDINADOR) {
         $solicitudId = (int) $_POST['solicitudId'];
@@ -100,6 +127,16 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $stmtAtendida->bind_param('isi', $idUsuario, $fechaActual, $solicitudId);
         $stmtAtendida->execute();
         $stmtAtendida->close();
+
+        registrarLog(
+            $conn,
+            $idUsuario,
+            'citas',
+            'aprobar_solicitud_reprogramacion',
+            sprintf('La solicitud #%d de reprogramación fue aprobada y aplicada a la cita #%d.', $solicitudId, $citaId),
+            'SolicitudReprogramacion',
+            (string) $solicitudId
+        );
     }
 
     $_SESSION['reprogramacion_mensaje'] = 'Fecha de cita actualizada correctamente.';

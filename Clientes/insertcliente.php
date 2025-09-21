@@ -1,11 +1,14 @@
 <?php
 ini_set('display_errors', 1);
+session_start();
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $name = $_POST['name'];
     $telefono = $_POST['telefono'];
     $correo = $_POST['correo'];
 
     require_once __DIR__ . '/../conexion.php';
+    require_once __DIR__ . '/../Modulos/logger.php';
     $conn = conectar();
     $conn->set_charset("utf8");
 
@@ -15,8 +18,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     // Ejecutar la consulta
     if ($stmt->execute()) {
+        $nuevoClienteId = $conn->insert_id;
+        registrarLog(
+            $conn,
+            $_SESSION['id'] ?? null,
+            'clientes',
+            'crear',
+            sprintf('Se registró el cliente "%s" (ID %d).', $name, $nuevoClienteId),
+            'Cliente',
+            (string) $nuevoClienteId
+        );
         header("Location:index.php");
-		die();
+                die();
     } else {
         echo "Error: " . $stmt->error;
     }

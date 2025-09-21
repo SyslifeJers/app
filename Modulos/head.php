@@ -136,7 +136,10 @@ if ($_SESSION['token'] !== $db_token) {
       </li>
       <li class="nav-item ">
         <a class="nav-link" href="/Configuracion/index.php"><i class="fas fa-hammer"></i>Configuración <span class="sr-only"></span></a>
-      </li>  
+      </li>
+      <li class="nav-item ">
+        <a class="nav-link" href="/Logs/index.php"><i class="fas fa-clipboard-list"></i>Logs del sistema <span class="sr-only"></span></a>
+      </li>
       <?php } ?>
 
 	 
