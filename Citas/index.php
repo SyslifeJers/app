@@ -1,4 +1,101 @@
-<?php include '../Modulos/head.php'; ?>
+<?php
+include '../Modulos/head.php';
+
+function normalizarFecha($fecha)
+{
+    if (empty($fecha)) {
+        return '';
+    }
+
+    $fecha = trim($fecha);
+    $dt = DateTime::createFromFormat('Y-m-d', $fecha);
+
+    return ($dt && $dt->format('Y-m-d') === $fecha) ? $fecha : '';
+}
+
+date_default_timezone_set('America/Mexico_City');
+$hoy = date('Y-m-d');
+$aplicarFiltros = isset($_GET['aplicar_filtros']);
+
+$fechaInicio = $aplicarFiltros ? ($_GET['fecha_inicio'] ?? '') : $hoy;
+$fechaFin = $aplicarFiltros ? ($_GET['fecha_fin'] ?? '') : $hoy;
+$statusSeleccionado = $aplicarFiltros ? ($_GET['status'] ?? '') : '';
+
+$fechaInicio = normalizarFecha($fechaInicio);
+$fechaFin = normalizarFecha($fechaFin);
+$statusSeleccionado = trim($statusSeleccionado);
+$estatusDisponibles = ['Cancelada', 'Creada', 'Reprogramado', 'Finalizada'];
+
+if ($statusSeleccionado !== '' && !in_array($statusSeleccionado, $estatusDisponibles, true)) {
+    $statusSeleccionado = '';
+}
+
+if ($fechaInicio && $fechaFin && $fechaInicio > $fechaFin) {
+    [$fechaInicio, $fechaFin] = [$fechaFin, $fechaInicio];
+}
+
+$condiciones = [];
+$tipos = '';
+$parametros = [];
+
+if ($statusSeleccionado === '') {
+    $condiciones[] = 'ci.Estatus IN (1, 4)';
+}
+
+if ($fechaInicio !== '') {
+    $condiciones[] = 'DATE(ci.Programado) >= ?';
+    $tipos .= 's';
+    $parametros[] = $fechaInicio;
+}
+
+if ($fechaFin !== '') {
+    $condiciones[] = 'DATE(ci.Programado) <= ?';
+    $tipos .= 's';
+    $parametros[] = $fechaFin;
+}
+
+if ($statusSeleccionado !== '') {
+    $condiciones[] = 'es.name = ?';
+    $tipos .= 's';
+    $parametros[] = $statusSeleccionado;
+}
+
+if (empty($condiciones)) {
+    $condiciones[] = '1 = 1';
+}
+
+$sql = "SELECT ci.id,
+        n.name,
+        us.name as Psicologo,
+        ci.costo,
+        ci.Programado,
+        DATE(ci.Programado) as Fecha,
+        TIME(ci.Programado) as Hora,
+        ci.Tipo,
+        es.name as Estatus,
+        ci.FormaPago
+        FROM Cita ci
+        INNER JOIN nino n ON n.id = ci.IdNino
+        INNER JOIN Usuarios us ON us.id = ci.IdUsuario
+        INNER JOIN Estatus es ON es.id = ci.Estatus
+        WHERE " . implode(' AND ', $condiciones) . '
+        ORDER BY ci.Programado ASC';
+
+$stmt = $conn->prepare($sql);
+$errorConsulta = '';
+
+if ($stmt === false) {
+    $errorConsulta = $conn->error;
+    $result = false;
+} else {
+    if ($tipos !== '') {
+        $stmt->bind_param($tipos, ...$parametros);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+}
+?>
 
 <div class="row">
     <div class="col-md-12">
@@ -7,61 +104,33 @@
                 <h4 class="card-title">Citas</h4>
             </div>
             <div class="card-body">
-                <div class="row mb-3">
+                <form id="filtersForm" class="row mb-3 g-3" method="get">
+                    <input type="hidden" name="aplicar_filtros" value="1">
                     <div class="col-md-3">
                         <label for="min-date" class="form-label">Fecha Inicio:</label>
-                        <input type="date" class="form-control" id="min-date">
+                        <input type="date" class="form-control" id="min-date" name="fecha_inicio" value="<?php echo htmlspecialchars($fechaInicio, ENT_QUOTES, 'UTF-8'); ?>">
                     </div>
                     <div class="col-md-3">
                         <label for="max-date" class="form-label">Fecha Fin:</label>
-                        <input type="date" class="form-control" id="max-date">
+                        <input type="date" class="form-control" id="max-date" name="fecha_fin" value="<?php echo htmlspecialchars($fechaFin, ENT_QUOTES, 'UTF-8'); ?>">
                     </div>
                     <div class="col-md-3">
                         <label for="status-filter" class="form-label">Estatus:</label>
-                        <select class="form-select" id="status-filter">
-                            <option value="">Todos</option>
-                            <option value="Cancelada">Cancelada</option>
-                            <option value="Creada">Creada</option>
-                            <option value="Reprogramado">Reprogramado</option>
-                            <option value="Finalizada">Finalizada</option>
+                        <select class="form-select" id="status-filter" name="status">
+                            <option value="" <?php echo $statusSeleccionado === '' ? 'selected' : ''; ?>>Todos</option>
+                            <option value="Cancelada" <?php echo $statusSeleccionado === 'Cancelada' ? 'selected' : ''; ?>>Cancelada</option>
+                            <option value="Creada" <?php echo $statusSeleccionado === 'Creada' ? 'selected' : ''; ?>>Creada</option>
+                            <option value="Reprogramado" <?php echo $statusSeleccionado === 'Reprogramado' ? 'selected' : ''; ?>>Reprogramado</option>
+                            <option value="Finalizada" <?php echo $statusSeleccionado === 'Finalizada' ? 'selected' : ''; ?>>Finalizada</option>
                         </select>
                     </div>
                     <div class="col-md-3 d-flex align-items-end">
-                        <button class="btn btn-black w-100" id="filter-button">Filtrar</button>
+                        <button type="submit" class="btn btn-black w-100" id="filter-button">Filtrar</button>
                     </div>
-                </div>
+                </form>
                 <div class="table-responsive">
 
                     <?php
-                    $sql = "SELECT ci.id,
-                    n.name,
-                    us.name as Psicologo,
-                    ci.costo,
-                    ci.Programado,
-                    DATE(ci.Programado) as Fecha,
-                    TIME(ci.Programado) as Hora,
-                    ci.Tipo,
-                    es.name as Estatus,
-                    ci.FormaPago
-                    FROM Cita ci
-                    INNER JOIN nino n ON n.id = ci.IdNino
-                    INNER JOIN Usuarios us ON us.id = ci.IdUsuario
-                    INNER JOIN Estatus es ON es.id = ci.Estatus
-                    WHERE (ci.Estatus = 1 OR ci.Estatus = 4)
-                    ORDER BY ci.Programado ASC;";
-
-                    $result = $conn->query($sql);
-                    
-                    // Establecer zona horaria
-                    date_default_timezone_set('America/Mexico_City');
-                    $hoy = date('Y-m-d');
-
-                    // Consulta SQL para filtrar desde la fecha actual hacia adelante
-                   
-
-               
-
-                    // Verificar si hay resultados y generar la tabla HTML
                     if ($result && $result->num_rows > 0) {
                         echo "<table border='1' id='myTable'>
                                 <thead>
@@ -95,11 +164,16 @@
                                   </tr>";
                         }
                         echo "</tbody></table>";
+                    } elseif ($errorConsulta !== '') {
+                        echo "<div class='alert alert-danger'>Ocurrió un error al consultar las citas. Por favor intenta de nuevo.</div>";
                     } else {
-                        echo "0 resultados";
+                        echo "<div class='alert alert-info'>No se encontraron resultados con los filtros seleccionados.</div>";
                     }
 
-                    // Cerrar conexión
+                    if (isset($stmt) && $stmt instanceof mysqli_stmt) {
+                        $stmt->close();
+                    }
+
                     $conn->close();
                     ?>
                 </div>
@@ -129,60 +203,25 @@
     document.getElementById('reporteFrame').src = url;
 });
     $(document).ready(function () {
-        // Establecer la fecha de hoy en los campos de fecha de inicio y fin
-        var hoy = new Date().toISOString().split('T')[0];
-        $('#min-date').val(hoy);
-        $('#max-date').val(hoy);
+        var $table = $('#myTable');
 
-        var table = $('#myTable').DataTable({
-            language: {
-                lengthMenu: 'Número de filas _MENU_',
-                zeroRecords: 'No encontró nada, usa los filtros para pulir la búsqueda',
-                info: 'Página _PAGE_ de _PAGES_',
-                search: 'Buscar:',
-                paginate: {
-                    first: 'Primero',
-                    last: 'Último',
-                    next: 'Siguiente',
-                    previous: 'Previo'
+        if ($table.length) {
+            $table.DataTable({
+                language: {
+                    lengthMenu: 'Número de filas _MENU_',
+                    zeroRecords: 'No encontró nada, usa los filtros para pulir la búsqueda',
+                    info: 'Página _PAGE_ de _PAGES_',
+                    search: 'Buscar:',
+                    paginate: {
+                        first: 'Primero',
+                        last: 'Último',
+                        next: 'Siguiente',
+                        previous: 'Previo'
+                    },
+                    infoEmpty: 'No hay registros disponibles',
+                    infoFiltered: '(Buscamos en _MAX_ resultados)',
                 },
-                infoEmpty: 'No hay registros disponibles',
-                infoFiltered: '(Buscamos en _MAX_ resultados)',
-            },
-        });
-
-        // Filtro por rango de fechas
-        $.fn.dataTable.ext.search.push(
-            function (settings, data, dataIndex) {
-                var minDate = $('#min-date').val();
-                var maxDate = $('#max-date').val();
-                var programado = data[0]; // Fecha está en la primera columna (índice 0)
-
-                if (
-                    (minDate === "" && maxDate === "") ||
-                    (minDate === "" && programado <= maxDate) ||
-                    (minDate <= programado && maxDate === "") ||
-                    (minDate <= programado && programado <= maxDate)
-                ) {
-                    return true;
-                }
-                return false;
-            }
-        );
-
-        // Filtro por estatus
-        $('#filter-button').on('click', function () {
-            var statusValue = $('#status-filter').val();
-            table.column(7).search(statusValue).draw(); // Estatus está en la octava columna (índice 7)
-            table.draw();
-        });
-
-        // Aplicar filtros al cambiar las fechas
-        $('#min-date, #max-date').on('change', function () {
-            table.draw();
-        });
-
-        // Aplicar filtros inicialmente
-        table.draw();
+            });
+        }
     });
 </script>
