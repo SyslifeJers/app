@@ -44,7 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    if ($rolUsuario === $ROL_VENTAS) {
+    if ($rolUsuario === $ROL_VENTAS && $estatus === 1) {
         $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
         if (!($tablaSolicitudes instanceof mysqli_result) || $tablaSolicitudes->num_rows === 0) {
             if ($tablaSolicitudes instanceof mysqli_result) {
@@ -175,8 +175,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    $_SESSION['cancelacion_mensaje'] = 'Cita cancelada correctamente.';
-    $_SESSION['cancelacion_tipo'] = 'success';
+    if ($estatus === 1) {
+        $_SESSION['cancelacion_mensaje'] = 'Cita cancelada correctamente.';
+        $_SESSION['cancelacion_tipo'] = 'success';
+    } elseif ($estatus === 4) {
+        $_SESSION['cancelacion_mensaje'] = 'Pago registrado correctamente.';
+        $_SESSION['cancelacion_tipo'] = 'success';
+    } else {
+        $_SESSION['cancelacion_mensaje'] = 'Estatus de la cita actualizado correctamente.';
+        $_SESSION['cancelacion_tipo'] = 'success';
+    }
 
     header('Location: index.php');
     exit;
