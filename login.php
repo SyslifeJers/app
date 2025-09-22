@@ -1,6 +1,12 @@
 <?php
 
 session_start();
+
+require_once __DIR__ . '/Modulos/logger.php';
+
+$message = '';
+$message_type = '';
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $user = $_POST['user'];
     $pass = $_POST['pass'];
@@ -43,17 +49,46 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             $_SESSION['token'] = $token;
             $_SESSION['rol'] = $idRol;
 
+            registrarLog(
+                $conn,
+                $id,
+                'auth',
+                'login',
+                sprintf('El usuario %s inició sesión correctamente.', $user),
+                'Usuario',
+                (string) $id
+            );
 
             $message = "Login exitoso. Token generado: " . $token;
-			    header("Location: index.php");
+            header("Location: index.php");
             $message_type = "success";
         } else {
             $message = "Contraseña incorrecta.";
             $message_type = "danger";
+
+            registrarLog(
+                $conn,
+                $id,
+                'auth',
+                'login_fallido',
+                sprintf('Intento fallido de inicio de sesión: contraseña incorrecta para el usuario %s.', $user),
+                'Usuario',
+                (string) $id
+            );
         }
     } else {
         $message = "Usuario no encontrado.";
         $message_type = "danger";
+
+        registrarLog(
+            $conn,
+            null,
+            'auth',
+            'login_fallido',
+            sprintf('Intento fallido de inicio de sesión: usuario %s no encontrado.', $user),
+            'Usuario',
+            $user
+        );
     }
 
     $stmt->close();
