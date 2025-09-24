@@ -100,8 +100,11 @@ if ($stmt === false) {
 <div class="row">
     <div class="col-md-12">
         <div class="card">
-            <div class="card-header">
-                <h4 class="card-title">Citas</h4>
+            <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <h4 class="card-title mb-0">Citas</h4>
+                <a class="btn btn-outline-primary btn-sm" href="calendario.php">
+                    <i class="far fa-calendar-alt me-1"></i>Ver calendario
+                </a>
             </div>
             <div class="card-body">
                 <form id="filtersForm" class="row mb-3 g-3" method="get">

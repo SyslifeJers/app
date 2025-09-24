@@ -116,8 +116,11 @@ if ($_SESSION['token'] !== $db_token) {
         <a class="nav-link" href="/Usuarios/index.php"><i class="fas fa-user"></i>Psicologos <span class="sr-only"></span></a>
       </li>
 
-	   <li class="nav-item ">
+           <li class="nav-item ">
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Citas <span class="sr-only"></span></a>
+      </li>
+           <li class="nav-item ">
+        <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
       </li>
       <?php $rol = isset($_SESSION['rol']) ? $_SESSION['rol'] : 0;
 
