@@ -29,6 +29,11 @@ if ($rolUsuario !== 3) {
     exit();
 }
 
+$moduloFiltro = isset($_GET['modulo']) ? trim($_GET['modulo']) : '';
+if ($moduloFiltro !== '') {
+    $moduloFiltro = mb_substr($moduloFiltro, 0, 100, 'UTF-8');
+}
+
 $tablaLogsExiste = false;
 if ($resultado = $conn->query("SHOW TABLES LIKE 'LogSistema'")) {
     $tablaLogsExiste = $resultado->num_rows > 0;
@@ -44,8 +49,13 @@ if (!$tablaLogsExiste) {
 
 $limite = 500;
 $registros = [];
-if ($stmtLogs = $conn->prepare('SELECT ls.fecha, us.name AS usuario_nombre, ls.modulo, ls.accion, ls.descripcion, ls.entidad, ls.referencia, ls.ip FROM LogSistema ls LEFT JOIN Usuarios us ON us.id = ls.usuario_id ORDER BY ls.fecha DESC LIMIT ?')) {
+if ($moduloFiltro !== '' && ($stmtLogs = $conn->prepare('SELECT ls.fecha, us.name AS usuario_nombre, ls.modulo, ls.accion, ls.descripcion, ls.entidad, ls.referencia, ls.ip FROM LogSistema ls LEFT JOIN Usuarios us ON us.id = ls.usuario_id WHERE ls.modulo = ? ORDER BY ls.fecha DESC LIMIT ?'))) {
+    $stmtLogs->bind_param('si', $moduloFiltro, $limite);
+} elseif ($moduloFiltro === '' && ($stmtLogs = $conn->prepare('SELECT ls.fecha, us.name AS usuario_nombre, ls.modulo, ls.accion, ls.descripcion, ls.entidad, ls.referencia, ls.ip FROM LogSistema ls LEFT JOIN Usuarios us ON us.id = ls.usuario_id ORDER BY ls.fecha DESC LIMIT ?'))) {
     $stmtLogs->bind_param('i', $limite);
+}
+
+if (isset($stmtLogs) && $stmtLogs !== false) {
     $stmtLogs->execute();
     $resultadoLogs = $stmtLogs->get_result();
     while ($fila = $resultadoLogs->fetch_assoc()) {

@@ -7,6 +7,11 @@ if ($rolUsuario !== 3) {
     exit;
 }
 
+$moduloFiltro = isset($_GET['modulo']) ? trim($_GET['modulo']) : '';
+if ($moduloFiltro !== '') {
+    $moduloFiltro = mb_substr($moduloFiltro, 0, 100, 'UTF-8');
+}
+
 $tablaLogsExiste = false;
 if ($resultado = $conn->query("SHOW TABLES LIKE 'LogSistema'")) {
     $tablaLogsExiste = $resultado->num_rows > 0;
@@ -14,10 +19,27 @@ if ($resultado = $conn->query("SHOW TABLES LIKE 'LogSistema'")) {
 }
 
 $registros = [];
+$modulosDisponibles = [];
 if ($tablaLogsExiste) {
+    if ($resultadoModulos = $conn->query('SELECT DISTINCT modulo FROM LogSistema ORDER BY modulo ASC')) {
+        while ($filaModulo = $resultadoModulos->fetch_assoc()) {
+            if (!empty($filaModulo['modulo'])) {
+                $modulosDisponibles[] = $filaModulo['modulo'];
+            }
+        }
+        $resultadoModulos->free();
+    }
+
     $limite = 500;
-    if ($stmtLogs = $conn->prepare('SELECT ls.id, ls.fecha, ls.modulo, ls.accion, ls.descripcion, ls.entidad, ls.referencia, ls.ip, us.name AS usuario_nombre FROM LogSistema ls LEFT JOIN Usuarios us ON us.id = ls.usuario_id ORDER BY ls.fecha DESC LIMIT ?')) {
+    $consultaBase = 'SELECT ls.id, ls.fecha, ls.modulo, ls.accion, ls.descripcion, ls.entidad, ls.referencia, ls.ip, us.name AS usuario_nombre FROM LogSistema ls LEFT JOIN Usuarios us ON us.id = ls.usuario_id';
+
+    if ($moduloFiltro !== '' && ($stmtLogs = $conn->prepare($consultaBase . ' WHERE ls.modulo = ? ORDER BY ls.fecha DESC LIMIT ?'))) {
+        $stmtLogs->bind_param('si', $moduloFiltro, $limite);
+    } elseif ($moduloFiltro === '' && ($stmtLogs = $conn->prepare($consultaBase . ' ORDER BY ls.fecha DESC LIMIT ?'))) {
         $stmtLogs->bind_param('i', $limite);
+    }
+
+    if (isset($stmtLogs) && $stmtLogs !== false) {
         $stmtLogs->execute();
         $resultadoLogs = $stmtLogs->get_result();
         while ($fila = $resultadoLogs->fetch_assoc()) {
@@ -36,12 +58,30 @@ if ($tablaLogsExiste) {
           <h4 class="card-title mb-0">Logs del sistema</h4>
           <span class="text-muted small">Mostrando hasta 500 eventos recientes</span>
         </div>
-        <?php if ($tablaLogsExiste && !empty($registros)): ?>
-          <a class="btn btn-success btn-sm" href="exportar_excel.php">
-            <i class="fas fa-file-excel me-1"></i>
-            Exportar a Excel
-          </a>
-        <?php endif; ?>
+        <div class="d-flex flex-wrap gap-2 align-items-center">
+          <?php if ($tablaLogsExiste): ?>
+            <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+              <label for="filtroModulo" class="form-label mb-0 me-1">Módulo:</label>
+              <select id="filtroModulo" name="modulo" class="form-select form-select-sm">
+                <option value="">Todos</option>
+                <?php foreach ($modulosDisponibles as $modulo): ?>
+                  <option value="<?php echo htmlspecialchars($modulo, ENT_QUOTES, 'UTF-8'); ?>" <?php echo $modulo === $moduloFiltro ? 'selected' : ''; ?>><?php echo htmlspecialchars($modulo, ENT_QUOTES, 'UTF-8'); ?></option>
+                <?php endforeach; ?>
+              </select>
+              <button type="submit" class="btn btn-primary btn-sm">Filtrar</button>
+              <?php if ($moduloFiltro !== ''): ?>
+                <a class="btn btn-link btn-sm" href="index.php">Limpiar</a>
+              <?php endif; ?>
+            </form>
+          <?php endif; ?>
+          <?php if ($tablaLogsExiste && !empty($registros)): ?>
+            <?php $parametrosExportacion = $moduloFiltro !== '' ? '?modulo=' . urlencode($moduloFiltro) : ''; ?>
+            <a class="btn btn-success btn-sm" href="exportar_excel.php<?php echo $parametrosExportacion; ?>">
+              <i class="fas fa-file-excel me-1"></i>
+              Exportar a Excel
+            </a>
+          <?php endif; ?>
+        </div>
       </div>
       <div class="card-body">
         <?php if (!$tablaLogsExiste): ?>
