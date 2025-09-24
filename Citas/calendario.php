@@ -199,6 +199,7 @@ include '../Modulos/head.php';
         .calendar-wrapper {
             padding: 1rem;
         }
+
     }
 </style>
 
@@ -224,7 +225,9 @@ include '../Modulos/head.php';
     <div class="row">
         <div class="col-12">
             <div class="card">
+
                 <div class="card-body calendar-wrapper">
+
                     <div id="calendar"></div>
                 </div>
             </div>
@@ -284,6 +287,7 @@ include '../Modulos/head.php';
                 <span class="badge legend-badge status-reprogramado">Reprogramado</span>
                 <span class="badge legend-badge status-finalizada">Finalizada</span>
                 <span class="badge legend-badge status-cancelada">Cancelada</span>
+
             </div>
         </div>
     </div>
@@ -306,6 +310,7 @@ include '../Modulos/head.php';
         };
 
         const defaultStatusStyles = statusStyles['Creada'];
+
 
         const dateFormatter = new Intl.DateTimeFormat('es-MX', {
             dateStyle: 'medium',
@@ -331,6 +336,7 @@ include '../Modulos/head.php';
 
             return startTime + ' - ' + timeFormatter.format(endDate);
         }
+
 
         const detailRow = document.getElementById('detail-row');
         const instructions = document.getElementById('calendar-instructions');
@@ -391,10 +397,12 @@ include '../Modulos/head.php';
                         }
 
                         const events = payload.data.map(function (item) {
+
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
                             const paciente = item.paciente || 'Sin registro';
                             const psicologo = item.psicologo || 'Sin registro';
                             const title = 'Paciente: ' + paciente + ' | Psicóloga: ' + psicologo;
+
 
                             return {
                                 id: item.id,
@@ -407,6 +415,7 @@ include '../Modulos/head.php';
                                     psicologo: psicologo,
                                     estatus: item.estatus,
                                     statusBadgeClass: statusStyle.badgeClass,
+
                                     tipo: item.tipo,
                                     forma_pago: item.forma_pago,
                                     costo: item.costo,
@@ -433,6 +442,7 @@ include '../Modulos/head.php';
                     });
             },
             eventContent: function (arg) {
+
                 const content = document.createElement('div');
                 content.classList.add('calendar-event-body');
 
@@ -453,6 +463,7 @@ include '../Modulos/head.php';
                     content.appendChild(psicologo);
                 }
 
+
                 return { domNodes: [content] };
             },
             eventClick: function (info) {
@@ -469,6 +480,7 @@ include '../Modulos/head.php';
                 detailFields.paciente.textContent = props.paciente || 'Sin registro';
                 detailFields.psicologo.textContent = props.psicologo || 'Sin registro';
 
+
                 if (detailFields.estatus) {
                     detailFields.estatus.innerHTML = '';
                     if (props.estatus) {
@@ -483,6 +495,7 @@ include '../Modulos/head.php';
                         detailFields.estatus.textContent = 'Sin registro';
                     }
                 }
+
                 detailFields.tipo.textContent = props.tipo || 'Sin registro';
                 detailFields.forma.textContent = props.forma_pago || 'No especificado';
                 detailFields.costo.textContent =
