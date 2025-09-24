@@ -31,9 +31,17 @@ if ($tablaLogsExiste) {
 <div class="row">
   <div class="col-md-12">
     <div class="card">
-      <div class="card-header d-flex justify-content-between align-items-center">
-        <h4 class="card-title mb-0">Logs del sistema</h4>
-        <span class="text-muted">Mostrando hasta 500 eventos recientes</span>
+      <div class="card-header d-flex flex-wrap gap-2 justify-content-between align-items-center">
+        <div>
+          <h4 class="card-title mb-0">Logs del sistema</h4>
+          <span class="text-muted small">Mostrando hasta 500 eventos recientes</span>
+        </div>
+        <?php if ($tablaLogsExiste && !empty($registros)): ?>
+          <a class="btn btn-success btn-sm" href="exportar_excel.php">
+            <i class="fas fa-file-excel me-1"></i>
+            Exportar a Excel
+          </a>
+        <?php endif; ?>
       </div>
       <div class="card-body">
         <?php if (!$tablaLogsExiste): ?>
