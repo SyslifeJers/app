@@ -82,6 +82,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
           $joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
 
           $sql = "SELECT ci.id,
+       ci.IdNino AS paciente_id,
        n.name,
        us.name as Psicologo,
        ci.costo,
@@ -89,7 +90,8 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
        ci.Tipo,
-       es.name as Estatus" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
+       es.name as Estatus,
+       COALESCE(n.saldo_paquete, 0) AS saldo_paquete" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
 FROM Cita ci
 INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
@@ -151,7 +153,16 @@ ORDER BY ci.Programado ASC;";
               }
 
               if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
-                $botones[] = '<button class="btn btn-success btn-sm" onclick=" actualizarCitaPago(' . $row['id'] . ',4)">Pagar</button>';
+                $onclickPago = sprintf(
+                  'actualizarCitaPago(%d, %d, %s, %d, %s, %s)',
+                  $row['id'],
+                  4,
+                  json_encode((float) $row['costo']),
+                  (int) $row['paciente_id'],
+                  json_encode((float) $row['saldo_paquete']),
+                  json_encode($row['name'])
+                );
+                $botones[] = '<button class="btn btn-success btn-sm" onclick="' . $onclickPago . '">Pagar</button>';
               }
 
               echo '<tr>';
@@ -322,11 +333,48 @@ ORDER BY ci.Programado ASC;";
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <select id="tipoPago" class="form-select">
-                        <option value="Efectivo">Efectivo</option>
-                        <option value="Transferencia">Transferencia</option>
-                        <option value="Tarjeta">Tarjeta</option>
-                    </select>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Paciente</label>
+                        <p id="modalPacienteNombre" class="form-control-plaintext mb-0"></p>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label class="form-label fw-semibold">Costo de la cita</label>
+                            <p id="modalCostoCita" class="form-control-plaintext mb-0"></p>
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-semibold">Saldo disponible</label>
+                            <p id="modalSaldoActual" class="form-control-plaintext mb-0"></p>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning d-none" id="alertaSaldoInsuficiente" role="alert">
+                        El monto asignado al saldo excede el saldo disponible del paciente.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Pagos registrados</label>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0" id="tablaPagos">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Forma de pago</th>
+                                        <th scope="col" style="width: 160px;">Monto</th>
+                                        <th scope="col" style="width: 60px;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="form-text">Registra una o varias formas de pago hasta cubrir el costo de la cita.</div>
+                    </div>
+                    <div class="d-flex gap-2 mb-3 flex-wrap">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="agregarPago">
+                            Agregar forma de pago
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="agregarPagoSaldo">
+                            Usar saldo disponible
+                        </button>
+                    </div>
+                    <p class="fw-semibold mb-0" id="resumenPagos"></p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -367,36 +415,382 @@ include 'Modulos/footer.php';
 
 <script>
   const ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;
-  function actualizarCitaPago(idCita, estatus) {
-    // Mostrar el modal
-    const modal = new bootstrap.Modal(document.getElementById('ModalTipoPago'), {
-        keyboard: false
-    });
-    modal.show();
+  const pagoModalEstado = {
+    modal: null,
+    idCita: null,
+    estatus: null,
+    costo: 0,
+    saldo: 0,
+    pagos: []
+  };
+  const modalPagoElement = document.getElementById('ModalTipoPago');
+  const tablaPagosBody = document.querySelector('#tablaPagos tbody');
+  const agregarPagoBtn = document.getElementById('agregarPago');
+  const agregarPagoSaldoBtn = document.getElementById('agregarPagoSaldo');
+  const resumenPagos = document.getElementById('resumenPagos');
+  const saldoActualLabel = document.getElementById('modalSaldoActual');
+  const costoCitaLabel = document.getElementById('modalCostoCita');
+  const pacienteLabel = document.getElementById('modalPacienteNombre');
+  const alertaSaldoInsuficiente = document.getElementById('alertaSaldoInsuficiente');
+  const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+  const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Tarjeta'];
+  const METODO_SALDO = 'Saldo';
 
-    // Manejar la confirmación del pago
-    document.getElementById('confirmarPago').onclick = function () {
-        const tipoPago = document.getElementById('tipoPago').value;
-
-        // Realizar la solicitud AJAX con el tipo de pago
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "cancelar.php", true);
-        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState === 4 && xhr.status === 200) {
-                location.reload();
-                // Puedes redirigir o realizar otras acciones aquí
-            }
-        };
-
-        const params = `citaId=${idCita}&estatus=${estatus}&formaPago=${tipoPago}`;
-        xhr.send(params);
-
-        // Ocultar el modal
-        modal.hide();
+  function obtenerTotalesPagos() {
+    const totales = {
+      total: 0,
+      totalSaldo: 0,
+      totalExternos: 0,
+      metodos: new Set()
     };
-}
+
+    if (!Array.isArray(pagoModalEstado.pagos)) {
+      pagoModalEstado.pagos = [];
+    }
+
+    pagoModalEstado.pagos.forEach((pago) => {
+      const metodo = (pago.metodo || '').trim();
+      const monto = parseFloat(pago.monto);
+      if (!metodo || Number.isNaN(monto)) {
+        return;
+      }
+
+      totales.total += monto;
+      totales.metodos.add(metodo);
+      if (metodo === METODO_SALDO) {
+        totales.totalSaldo += monto;
+      } else {
+        totales.totalExternos += monto;
+      }
+    });
+
+    return totales;
+  }
+
+  function actualizarResumenPagos() {
+    const totales = obtenerTotalesPagos();
+    if (resumenPagos) {
+      let mensaje = 'Total registrado: ' + formatoMoneda.format(totales.total) + '. ';
+      if (totales.total + 0.0001 < pagoModalEstado.costo) {
+        const faltante = pagoModalEstado.costo - totales.total;
+        mensaje += 'Faltan ' + formatoMoneda.format(faltante) + ' por cubrir.';
+      } else {
+        const excedente = totales.total - pagoModalEstado.costo;
+        if (excedente > 0.009) {
+          mensaje += 'Excedente de ' + formatoMoneda.format(excedente) + ' se agregará al saldo.';
+        } else {
+          mensaje += 'Monto exacto para cubrir la cita.';
+        }
+      }
+
+      if (totales.totalSaldo > 0.009) {
+        const saldoRestante = Math.max(0, pagoModalEstado.saldo - totales.totalSaldo);
+        mensaje += ' Saldo utilizado: ' + formatoMoneda.format(totales.totalSaldo) + '. Saldo restante: ' + formatoMoneda.format(saldoRestante) + '.';
+      }
+
+      resumenPagos.textContent = mensaje;
+    }
+
+    if (alertaSaldoInsuficiente) {
+      if (totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
+        alertaSaldoInsuficiente.classList.remove('d-none');
+      } else {
+        alertaSaldoInsuficiente.classList.add('d-none');
+      }
+    }
+
+    actualizarBotonesPagos();
+  }
+
+  function actualizarBotonesPagos() {
+    if (!agregarPagoSaldoBtn) {
+      return;
+    }
+
+    const saldoDisponible = pagoModalEstado.saldo || 0;
+    const saldoEnUso = pagoModalEstado.pagos.some((pago) => (pago.metodo || '').trim() === METODO_SALDO);
+
+    if (saldoDisponible <= 0 || saldoEnUso) {
+      agregarPagoSaldoBtn.setAttribute('disabled', 'disabled');
+    } else {
+      agregarPagoSaldoBtn.removeAttribute('disabled');
+    }
+  }
+
+  function handleMontoChange(index, valor) {
+    if (!Array.isArray(pagoModalEstado.pagos) || !pagoModalEstado.pagos[index]) {
+      return;
+    }
+
+    const numero = parseFloat(valor);
+    pagoModalEstado.pagos[index].monto = Number.isNaN(numero) || numero < 0 ? 0 : numero;
+    actualizarResumenPagos();
+  }
+
+  function handleMetodoChange(index, nuevoMetodo) {
+    if (!Array.isArray(pagoModalEstado.pagos) || !pagoModalEstado.pagos[index]) {
+      return;
+    }
+
+    pagoModalEstado.pagos[index].metodo = nuevoMetodo;
+
+    if (nuevoMetodo === METODO_SALDO) {
+      const montoActual = parseFloat(pagoModalEstado.pagos[index].monto);
+      if (Number.isNaN(montoActual) || montoActual <= 0) {
+        const totales = obtenerTotalesPagos();
+        const totalSinActual = totales.total - (Number.isNaN(montoActual) ? 0 : montoActual);
+        const faltante = Math.max(0, pagoModalEstado.costo - totalSinActual);
+        const montoSugerido = Math.min(pagoModalEstado.saldo, faltante > 0 ? faltante : pagoModalEstado.saldo);
+        pagoModalEstado.pagos[index].monto = parseFloat(montoSugerido.toFixed(2));
+      }
+    }
+
+    renderPagos();
+  }
+
+  function eliminarPago(index) {
+    if (!Array.isArray(pagoModalEstado.pagos) || !pagoModalEstado.pagos[index]) {
+      return;
+    }
+
+    pagoModalEstado.pagos.splice(index, 1);
+
+    if (pagoModalEstado.pagos.length === 0) {
+      agregarPagoGenerico();
+      return;
+    }
+
+    renderPagos();
+  }
+
+  function agregarPagoGenerico(metodo = METODOS_PAGO[0], monto = null) {
+    if (!Array.isArray(pagoModalEstado.pagos)) {
+      pagoModalEstado.pagos = [];
+    }
+
+    const totales = obtenerTotalesPagos();
+    let montoInicial = 0;
+    if (monto === null) {
+      const faltante = Math.max(0, pagoModalEstado.costo - totales.total);
+      montoInicial = faltante > 0 ? faltante : 0;
+    } else {
+      montoInicial = monto;
+    }
+
+    pagoModalEstado.pagos.push({
+      metodo,
+      monto: parseFloat((montoInicial || 0).toFixed(2))
+    });
+
+    renderPagos();
+  }
+
+  function inicializarPagos() {
+    pagoModalEstado.pagos = [{
+      metodo: METODOS_PAGO[0],
+      monto: parseFloat(pagoModalEstado.costo.toFixed(2))
+    }];
+    renderPagos();
+  }
+
+  function renderPagos() {
+    if (!tablaPagosBody) {
+      return;
+    }
+
+    tablaPagosBody.innerHTML = '';
+
+    pagoModalEstado.pagos.forEach((pago, index) => {
+      const fila = document.createElement('tr');
+
+      const celdaMetodo = document.createElement('td');
+      const selectMetodo = document.createElement('select');
+      selectMetodo.className = 'form-select form-select-sm';
+      const metodoActual = (pago.metodo || '').trim() || METODOS_PAGO[0];
+      const saldoYaAsignado = pagoModalEstado.pagos.some((p, i) => (p.metodo || '').trim() === METODO_SALDO && i !== index);
+      [...METODOS_PAGO, METODO_SALDO].forEach((metodo) => {
+        if (metodo === METODO_SALDO && saldoYaAsignado && metodoActual !== METODO_SALDO) {
+          return;
+        }
+        const option = document.createElement('option');
+        option.value = metodo;
+        option.textContent = metodo === METODO_SALDO ? 'Saldo disponible' : metodo;
+        if (metodo === metodoActual) {
+          option.selected = true;
+        }
+        selectMetodo.appendChild(option);
+      });
+      selectMetodo.addEventListener('change', (event) => handleMetodoChange(index, event.target.value));
+      celdaMetodo.appendChild(selectMetodo);
+      fila.appendChild(celdaMetodo);
+
+      const celdaMonto = document.createElement('td');
+      const inputMonto = document.createElement('input');
+      inputMonto.type = 'number';
+      inputMonto.min = '0';
+      inputMonto.step = '0.01';
+      inputMonto.className = 'form-control form-control-sm';
+      const montoValor = parseFloat(pago.monto);
+      inputMonto.value = Number.isNaN(montoValor) ? '0.00' : montoValor.toFixed(2);
+      inputMonto.addEventListener('input', (event) => handleMontoChange(index, event.target.value));
+      inputMonto.addEventListener('blur', () => {
+        const montoActualizado = parseFloat(pagoModalEstado.pagos[index].monto);
+        inputMonto.value = Number.isNaN(montoActualizado) ? '0.00' : montoActualizado.toFixed(2);
+      });
+      celdaMonto.appendChild(inputMonto);
+      fila.appendChild(celdaMonto);
+
+      const celdaAcciones = document.createElement('td');
+      const btnEliminar = document.createElement('button');
+      btnEliminar.type = 'button';
+      btnEliminar.className = 'btn btn-link text-danger p-0';
+      btnEliminar.textContent = 'Quitar';
+      btnEliminar.addEventListener('click', () => eliminarPago(index));
+      celdaAcciones.appendChild(btnEliminar);
+      fila.appendChild(celdaAcciones);
+
+      tablaPagosBody.appendChild(fila);
+    });
+
+    actualizarResumenPagos();
+  }
+
+  if (modalPagoElement) {
+    modalPagoElement.addEventListener('hidden.bs.modal', function () {
+      pagoModalEstado.pagos = [];
+      if (tablaPagosBody) {
+        tablaPagosBody.innerHTML = '';
+      }
+      if (resumenPagos) {
+        resumenPagos.textContent = '';
+      }
+      if (alertaSaldoInsuficiente) {
+        alertaSaldoInsuficiente.classList.add('d-none');
+      }
+      if (agregarPagoSaldoBtn) {
+        agregarPagoSaldoBtn.removeAttribute('disabled');
+      }
+    });
+  }
+
+  if (agregarPagoBtn) {
+    agregarPagoBtn.addEventListener('click', () => agregarPagoGenerico());
+  }
+
+  if (agregarPagoSaldoBtn) {
+    agregarPagoSaldoBtn.addEventListener('click', () => {
+      const totales = obtenerTotalesPagos();
+      const faltante = Math.max(0, pagoModalEstado.costo - totales.total);
+      let montoSugerido = faltante > 0 ? faltante : pagoModalEstado.saldo;
+      montoSugerido = Math.min(pagoModalEstado.saldo, montoSugerido);
+      if (montoSugerido <= 0) {
+        montoSugerido = Math.min(pagoModalEstado.saldo, pagoModalEstado.costo);
+      }
+      agregarPagoGenerico(METODO_SALDO, montoSugerido);
+    });
+  }
+
+  function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo, pacienteNombre) {
+    if (!modalPagoElement) {
+      return;
+    }
+
+    pagoModalEstado.idCita = idCita;
+    pagoModalEstado.estatus = estatus;
+    pagoModalEstado.costo = parseFloat(costo) || 0;
+    pagoModalEstado.saldo = parseFloat(saldo) || 0;
+    pagoModalEstado.pacienteId = pacienteId;
+
+    if (!pagoModalEstado.modal) {
+      pagoModalEstado.modal = new bootstrap.Modal(modalPagoElement, {
+        keyboard: false
+      });
+    }
+
+    if (pacienteLabel) {
+      pacienteLabel.textContent = pacienteNombre || '';
+    }
+    if (costoCitaLabel) {
+      costoCitaLabel.textContent = formatoMoneda.format(pagoModalEstado.costo);
+    }
+    if (saldoActualLabel) {
+      saldoActualLabel.textContent = formatoMoneda.format(pagoModalEstado.saldo);
+    }
+    if (alertaSaldoInsuficiente) {
+      alertaSaldoInsuficiente.classList.add('d-none');
+    }
+
+    inicializarPagos();
+
+    pagoModalEstado.modal.show();
+
+    const confirmarPago = document.getElementById('confirmarPago');
+    if (!confirmarPago) {
+      return;
+    }
+
+    confirmarPago.onclick = function () {
+      if (!Array.isArray(pagoModalEstado.pagos) || pagoModalEstado.pagos.length === 0) {
+        alert('Agrega al menos una forma de pago.');
+        return;
+      }
+
+      const totales = obtenerTotalesPagos();
+      const pagosPayload = [];
+
+      for (const pago of pagoModalEstado.pagos) {
+        const metodo = (pago.metodo || '').trim();
+        const monto = parseFloat(pago.monto);
+        if (!metodo) {
+          alert('Selecciona una forma de pago válida.');
+          return;
+        }
+        if (Number.isNaN(monto) || monto <= 0) {
+          alert('Ingresa montos válidos para cada forma de pago.');
+          return;
+        }
+        pagosPayload.push({
+          metodo,
+          monto: monto.toFixed(2)
+        });
+      }
+
+      if (totales.total + 0.0001 < pagoModalEstado.costo) {
+        alert('El monto total registrado es menor al costo de la cita.');
+        return;
+      }
+
+      if (totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
+        alert('El saldo disponible no es suficiente para cubrir el monto asignado.');
+        return;
+      }
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'cancelar.php', true);
+      xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState === 4) {
+          pagoModalEstado.modal.hide();
+          location.reload();
+        }
+      };
+
+      const params = new URLSearchParams();
+      params.append('citaId', pagoModalEstado.idCita);
+      params.append('estatus', pagoModalEstado.estatus);
+      const metodosResumen = Array.from(totales.metodos);
+      if (metodosResumen.length === 1) {
+        params.append('formaPago', metodosResumen[0]);
+      } else if (metodosResumen.length > 1) {
+        params.append('formaPago', 'Mixto (' + metodosResumen.join(', ') + ')');
+      }
+      params.append('montoPago', totales.total.toFixed(2));
+      params.append('pagos', JSON.stringify(pagosPayload));
+
+      xhr.send(params.toString());
+    };
+  }
 function enviarFormularioJSON() {
   const form = document.getElementById('formCita');
   const formData = new FormData(form);
