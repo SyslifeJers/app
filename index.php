@@ -154,13 +154,12 @@ ORDER BY ci.Programado ASC;";
 
               if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
                 $onclickPago = sprintf(
-                  'actualizarCitaPago(%d, %d, %s, %d, %s, %s)',
+                  'actualizarCitaPago(%d, %d, %f, %d, %f)',
                   $row['id'],
                   4,
-                  json_encode((float) $row['costo']),
+                  (float) $row['costo'],
                   (int) $row['paciente_id'],
-                  json_encode((float) $row['saldo_paquete']),
-                  json_encode($row['name'])
+                  (float) $row['saldo_paquete']
                 );
                 $botones[] = '<button class="btn btn-success btn-sm" onclick="' . $onclickPago . '">Pagar</button>';
               }
@@ -690,7 +689,7 @@ include 'Modulos/footer.php';
     });
   }
 
-  function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo, pacienteNombre) {
+  function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo) {
     if (!modalPagoElement) {
       return;
     }
@@ -707,9 +706,6 @@ include 'Modulos/footer.php';
       });
     }
 
-    if (pacienteLabel) {
-      pacienteLabel.textContent = pacienteNombre || '';
-    }
     if (costoCitaLabel) {
       costoCitaLabel.textContent = formatoMoneda.format(pagoModalEstado.costo);
     }

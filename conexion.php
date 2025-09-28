@@ -1,9 +1,9 @@
 <?php
 function conectar() {
     $db_host = 'localhost';
-    $db_name = 'clini234_cerene';
-    $db_user = 'clini234_cerene';
-    $db_pass = 'tu{]ScpQ-Vcg';
+    $db_name = 'u529445062_cenere';
+    $db_user = 'u529445062_jers';
+    $db_pass = 'Rtx2080_';
 
     $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
     $conn->set_charset("utf8");
