@@ -90,6 +90,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
        ci.Tipo,
+       ci.FormaPago,
        es.name as Estatus,
        COALESCE(n.saldo_paquete, 0) AS saldo_paquete" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
 FROM Cita ci
@@ -114,9 +115,9 @@ ORDER BY ci.Programado ASC;";
                 <th>Paciente</th>
                 <th>Psicólogo</th>
                 <th>Costo</th>
-
                 <th>Hora</th>
                 <th>Tipo</th>
+                <th>Forma de pago</th>
                 <th>Estatus</th>
                 <th>Solicitudes de reprogramación</th>
                 <th>Solicitudes de cancelación</th>
@@ -135,6 +136,7 @@ ORDER BY ci.Programado ASC;";
               $badgeClassCancelacion = $pendientesCancelacion > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
 
               $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
+              $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
               $botones = [];
               if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
                 $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
@@ -152,7 +154,9 @@ ORDER BY ci.Programado ASC;";
                 $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
               }
 
-              if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
+              if ($formaPagoRegistrada !== '') {
+                $botones[] = '<span class="badge bg-success">Pago registrado</span>';
+              } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
                 $onclickPago = sprintf(
                   'actualizarCitaPago(%d, %d, %f, %d, %f)',
                   $row['id'],
@@ -172,6 +176,8 @@ ORDER BY ci.Programado ASC;";
               echo '<td>' . $row['costo'] . '</td>';
               echo '<td>' . $row['Hora'] . '</td>';
               echo '<td>' . $row['Tipo'] . '</td>';
+              $formaPagoTexto = $formaPagoRegistrada !== '' ? $formaPagoRegistrada : 'Sin registrar';
+              echo '<td>' . htmlspecialchars($formaPagoTexto, ENT_QUOTES, 'UTF-8') . '</td>';
               echo '<td>' . $row['Estatus'] . '</td>';
               echo '<td><span class="' . $badgeClassReprogramacion . '">' . $textoBadgeReprogramacion . '</span></td>';
               echo '<td><span class="' . $badgeClassCancelacion . '">' . $textoBadgeCancelacion . '</span></td>';
@@ -256,6 +262,12 @@ ORDER BY ci.Programado ASC;";
               </select>
             </div>
             <div class="form-group">
+              <label for="paqueteSelect">Paquete</label>
+              <select name="paquete" id="paqueteSelect" class="form-select" onchange="handlePaqueteChange()">
+                <option value="">Sin paquete</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label for="citaDia"> Día de la cita</label>
               <input type="datetime-local" id="citaDia" name="citaDia" class="form-select" onchange="updateResumen()">
             </div>
@@ -292,7 +304,24 @@ ORDER BY ci.Programado ASC;";
               </div>
               <div class="form-group">
                 <label for="resumenCosto">Costo</label>
-                <input type="number" name="resumenCosto" id="resumenCosto" class="form-control" >
+                <input type="number" name="resumenCosto" id="resumenCosto" class="form-control" min="0" step="0.01">
+              </div>
+              <div class="form-group">
+                <label for="resumenPaquete">Paquete</label>
+                <input type="text" name="resumenPaquete" id="resumenPaquete" class="form-control" value="Sin paquete" readonly>
+                <input type="hidden" name="sendIdPaquete" id="sendIdPaquete">
+              </div>
+              <div class="form-group d-none" id="grupoMetodoPaquete">
+                <label for="paqueteMetodo">Método del primer pago</label>
+                <select name="paqueteMetodo" id="paqueteMetodo" class="form-select">
+                  <option value="">Selecciona una opción</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia</option>
+                </select>
+              </div>
+              <div class="form-group d-none" id="grupoSaldoPaquete">
+                <label for="resumenSaldoPaquete">Saldo adicional</label>
+                <input type="text" id="resumenSaldoPaquete" class="form-control" readonly>
               </div>
               <div class="form-group">
                 <label for="resumenFecha">Fecha de la Cita</label>
@@ -434,6 +463,14 @@ include 'Modulos/footer.php';
   const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
   const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Tarjeta'];
   const METODO_SALDO = 'Saldo';
+  const paqueteSelect = document.getElementById('paqueteSelect');
+  const resumenPaqueteInput = document.getElementById('resumenPaquete');
+  const sendIdPaqueteInput = document.getElementById('sendIdPaquete');
+  const paqueteMetodoSelect = document.getElementById('paqueteMetodo');
+  const grupoMetodoPaquete = document.getElementById('grupoMetodoPaquete');
+  const grupoSaldoPaquete = document.getElementById('grupoSaldoPaquete');
+  const resumenSaldoPaqueteInput = document.getElementById('resumenSaldoPaquete');
+  const paquetesDisponibles = new Map();
 
   function obtenerTotalesPagos() {
     const totales = {
@@ -514,6 +551,73 @@ include 'Modulos/footer.php';
     } else {
       agregarPagoSaldoBtn.removeAttribute('disabled');
     }
+  }
+
+  function obtenerPaqueteSeleccionado() {
+    if (!paqueteSelect) {
+      return null;
+    }
+    const paqueteId = paqueteSelect.value;
+    if (!paqueteId) {
+      return null;
+    }
+    return paquetesDisponibles.get(paqueteId) || null;
+  }
+
+  function aplicarPaqueteSeleccionado() {
+    if (!resumenPaqueteInput || !sendIdPaqueteInput) {
+      return;
+    }
+
+    const paqueteSeleccionado = obtenerPaqueteSeleccionado();
+    const resumenCostoInput = document.getElementById('resumenCosto');
+    const costosSelect = document.getElementById('costosSelect');
+
+    if (paqueteSeleccionado) {
+      resumenPaqueteInput.value = paqueteSeleccionado.nombre;
+      sendIdPaqueteInput.value = paqueteSeleccionado.id;
+      if (resumenCostoInput) {
+        resumenCostoInput.value = Number(paqueteSeleccionado.primer_pago_monto).toFixed(2);
+        resumenCostoInput.setAttribute('readonly', 'readonly');
+      }
+      if (grupoMetodoPaquete) {
+        grupoMetodoPaquete.classList.remove('d-none');
+      }
+      if (grupoSaldoPaquete) {
+        grupoSaldoPaquete.classList.remove('d-none');
+      }
+      if (resumenSaldoPaqueteInput) {
+        resumenSaldoPaqueteInput.value = formatoMoneda.format(paqueteSeleccionado.saldo_adicional);
+      }
+      if (paqueteMetodoSelect && !paqueteMetodoSelect.value) {
+        paqueteMetodoSelect.value = 'Efectivo';
+      }
+    } else {
+      resumenPaqueteInput.value = 'Sin paquete';
+      sendIdPaqueteInput.value = '';
+      if (resumenCostoInput) {
+        if (costosSelect && costosSelect.selectedIndex >= 0) {
+          resumenCostoInput.value = costosSelect.options[costosSelect.selectedIndex].value;
+        }
+        resumenCostoInput.removeAttribute('readonly');
+      }
+      if (grupoMetodoPaquete) {
+        grupoMetodoPaquete.classList.add('d-none');
+      }
+      if (grupoSaldoPaquete) {
+        grupoSaldoPaquete.classList.add('d-none');
+      }
+      if (resumenSaldoPaqueteInput) {
+        resumenSaldoPaqueteInput.value = '';
+      }
+      if (paqueteMetodoSelect) {
+        paqueteMetodoSelect.value = '';
+      }
+    }
+  }
+
+  function handlePaqueteChange() {
+    aplicarPaqueteSeleccionado();
   }
 
   function handleMontoChange(index, valor) {
@@ -877,6 +981,15 @@ function enviarFormularioJSON() {
       return false;
     }
 
+    const paqueteSeleccionado = sendIdPaqueteInput ? sendIdPaqueteInput.value : '';
+    if (paqueteSeleccionado) {
+      const metodoPaquete = paqueteMetodoSelect ? paqueteMetodoSelect.value : '';
+      if (metodoPaquete !== 'Efectivo' && metodoPaquete !== 'Transferencia') {
+        alert('Selecciona la forma de pago para el paquete (efectivo o transferencia).');
+        return false;
+      }
+    }
+
     // Si todo es válido, enviar el formulario
 enviarFormularioJSON();
 
@@ -888,23 +1001,39 @@ enviarFormularioJSON();
     const idEmpleado = document.getElementById('idEmpleado');
     const costosSelect = document.getElementById('costosSelect');
     const citaDia = document.getElementById('citaDia');
+    const resumenCostoInput = document.getElementById('resumenCosto');
 
-    document.getElementById('resumenCliente').value = nameSelect.options[nameSelect.selectedIndex].text;
-    document.getElementById('sendIdCliente').value = nameSelect.options[nameSelect.selectedIndex].value;
-    document.getElementById('resumenPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].text;
-    document.getElementById('sendIdPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].value;
-    var texts = costosSelect.options[costosSelect.selectedIndex].text;
-    var textoLimpio = texts.replace(/[0-9:$.]/g, '');
-    document.getElementById('resumenTipo').value = textoLimpio;
-    document.getElementById('resumenCosto').value = costosSelect.options[costosSelect.selectedIndex].value;
-    document.getElementById('resumenFecha').value = citaDia.value;
+    if (nameSelect && nameSelect.selectedIndex >= 0) {
+      document.getElementById('resumenCliente').value = nameSelect.options[nameSelect.selectedIndex].text;
+      document.getElementById('sendIdCliente').value = nameSelect.options[nameSelect.selectedIndex].value;
+    }
 
+    if (idEmpleado && idEmpleado.selectedIndex >= 0) {
+      document.getElementById('resumenPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].text;
+      document.getElementById('sendIdPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].value;
+    }
+
+    if (costosSelect && costosSelect.selectedIndex >= 0) {
+      const textoOpcion = costosSelect.options[costosSelect.selectedIndex].text;
+      const textoLimpio = textoOpcion.replace(/[0-9:$.]/g, '').trim();
+      document.getElementById('resumenTipo').value = textoLimpio;
+      if (resumenCostoInput && !(paqueteSelect && paqueteSelect.value)) {
+        resumenCostoInput.value = costosSelect.options[costosSelect.selectedIndex].value;
+      }
+    }
+
+    if (citaDia) {
+      document.getElementById('resumenFecha').value = citaDia.value;
+    }
+
+    aplicarPaqueteSeleccionado();
     revisarCita();
   }
   function loadAll() {
     loadCostos();
     loadNames();
     loadEmpleados();
+    loadPaquetes();
 
   }
   function loadCostos() {
@@ -934,6 +1063,49 @@ enviarFormularioJSON();
       }
     };
     xhr.send();
+  }
+
+  function loadPaquetes() {
+    if (!paqueteSelect) {
+      return;
+    }
+
+    fetch('Modulos/getPaquetes.php')
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('Error al cargar paquetes');
+        }
+        return response.json();
+      })
+      .then((paquetes) => {
+        paquetesDisponibles.clear();
+        paqueteSelect.innerHTML = '<option value="">Sin paquete</option>';
+
+        if (Array.isArray(paquetes)) {
+          paquetes.forEach((paquete) => {
+            const idCadena = String(paquete.id);
+            const paqueteNormalizado = {
+              id: idCadena,
+              nombre: paquete.nombre,
+              primer_pago_monto: parseFloat(paquete.primer_pago_monto),
+              saldo_adicional: parseFloat(paquete.saldo_adicional),
+            };
+            paquetesDisponibles.set(idCadena, paqueteNormalizado);
+
+            const option = document.createElement('option');
+            option.value = idCadena;
+            option.textContent = `${paqueteNormalizado.nombre} - pago ${formatoMoneda.format(paqueteNormalizado.primer_pago_monto)} / saldo ${formatoMoneda.format(paqueteNormalizado.saldo_adicional)}`;
+            paqueteSelect.appendChild(option);
+          });
+        }
+
+        aplicarPaqueteSeleccionado();
+      })
+      .catch(() => {
+        paquetesDisponibles.clear();
+        paqueteSelect.innerHTML = '<option value="">Sin paquete</option>';
+        aplicarPaqueteSeleccionado();
+      });
   }
   function loadEmpleados() {
     const xhr = new XMLHttpRequest();
