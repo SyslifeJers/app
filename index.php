@@ -137,6 +137,7 @@ ORDER BY ci.Programado ASC;";
 
               $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
               $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
+              $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
               if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
                 $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
@@ -156,6 +157,9 @@ ORDER BY ci.Programado ASC;";
 
               if ($formaPagoRegistrada !== '') {
                 $botones[] = '<span class="badge bg-success">Pago registrado</span>';
+                if ($estatusActual !== 'finalizada' && $rolUsuario != 1) {
+                  $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
+                }
               } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
                 $onclickPago = sprintf(
                   'actualizarCitaPago(%d, %d, %f, %d, %f)',
@@ -911,7 +915,7 @@ function enviarFormularioJSON() {
   .catch(error => {
     alert('Error en el servidor: ' + error.message);
   });
-}
+  }
 
   function actualizarCita(idCita, estatus) {
     const xhr = new XMLHttpRequest();
@@ -929,6 +933,37 @@ function enviarFormularioJSON() {
       const params = `citaId=${idCita}&estatus=${estatus}`;
       xhr.send(params);
 
+  }
+  function finalizarCita(idCita) {
+    if (!idCita) {
+      return;
+    }
+
+    if (!confirm('¿Deseas finalizar esta cita?')) {
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.append('citaId', idCita);
+
+    fetch('finalizar_cita.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: params.toString()
+    })
+      .then(response => response.json().catch(() => ({ success: false, message: 'Respuesta no válida del servidor.' })))
+      .then(data => {
+        if (data && data.success) {
+          location.reload();
+        } else {
+          alert((data && data.message) ? data.message : 'No fue posible finalizar la cita.');
+        }
+      })
+      .catch(() => {
+        alert('No fue posible finalizar la cita.');
+      });
   }
   function Reprogramar(citaId) {
     // Asigna el ID de la cita al campo del formulario
