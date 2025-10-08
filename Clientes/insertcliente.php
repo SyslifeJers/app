@@ -3,9 +3,22 @@ ini_set('display_errors', 1);
 session_start();
 
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $name = $_POST['name'];
-    $telefono = $_POST['telefono'];
-    $correo = $_POST['correo'];
+    $firstName = trim($_POST['first_name'] ?? '');
+    $lastName = trim($_POST['last_name'] ?? '');
+    $secondLastName = trim($_POST['second_last_name'] ?? '');
+    $telefono = trim($_POST['telefono'] ?? '');
+    $correo = trim($_POST['correo'] ?? '');
+
+    $nameParts = array_filter([$firstName, $lastName, $secondLastName], function ($value) {
+        return $value !== '';
+    });
+    $name = implode(' ', $nameParts);
+
+    if ($firstName === '' || $lastName === '' || $secondLastName === '' || $telefono === '') {
+        $_SESSION['error_message'] = 'Por favor completa todos los campos obligatorios.';
+        header("Location:index.php");
+        exit();
+    }
 
     require_once __DIR__ . '/../conexion.php';
     require_once __DIR__ . '/../Modulos/logger.php';
