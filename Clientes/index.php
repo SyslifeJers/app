@@ -129,17 +129,25 @@ include '../Modulos/head.php';
 
                             $pacienteNombreHtml = htmlspecialchars($pacienteNombre, ENT_QUOTES, 'UTF-8');
                             $pacienteSaldoHtml = '$' . number_format($pacienteSaldo, 2);
-                            $pacienteNombreJs = json_encode($pacienteNombre, JSON_HEX_APOS | JSON_HEX_QUOT);
-                            $pacienteSaldoJs = json_encode($pacienteSaldo);
 
                             echo '<div class="mb-3">';
                             echo '<div class="fw-semibold">' . $pacienteNombreHtml . '</div>';
                             echo '<div class="text-muted small">Saldo: ' . $pacienteSaldoHtml . '</div>';
                             echo '<div class="d-flex flex-wrap gap-3 mt-2">';
-                            echo '<a href="#" class="link-primary text-decoration-none" onclick="openModal(' . (int) $row['id'] . ', ' . $pacienteNombreJs . '); return false;">Editar</a>';
+                            $pacienteNombreAttr = htmlspecialchars($pacienteNombre, ENT_QUOTES, 'UTF-8');
+                            $pacienteSaldoAttr = htmlspecialchars((string) $pacienteSaldo, ENT_QUOTES, 'UTF-8');
+
+                            echo '<a href="#" class="link-primary text-decoration-none"'
+                                . ' data-tutor-id="' . (int) $row['id'] . '"'
+                                . ' data-paciente-nombre="' . $pacienteNombreAttr . '"'
+                                . ' onclick="openModal(this); return false;">Editar</a>';
 
                             if (in_array($rolUsuario, [3, 5], true)) {
-                                echo '<a href="#" class="text-success text-decoration-none" onclick="openSaldoModal(' . $pacienteId . ', ' . $pacienteNombreJs . ', ' . $pacienteSaldoJs . '); return false;">Agregar saldo</a>';
+                                echo '<a href="#" class="text-success text-decoration-none"'
+                                    . ' data-paciente-id="' . $pacienteId . '"'
+                                    . ' data-paciente-nombre="' . $pacienteNombreAttr . '"'
+                                    . ' data-paciente-saldo="' . $pacienteSaldoAttr . '"'
+                                    . ' onclick="openSaldoModal(this); return false;">Agregar saldo</a>';
                             }
                             echo '</div>';
                             echo '</div>';
@@ -441,16 +449,37 @@ include '../Modulos/footer.php';
         saldoAlert.textContent = message;
     }
 
-    function openSaldoModal(pacienteId, nombre, saldoActual) {
+    function openSaldoModal(pacienteOrigen, nombreArgumento, saldoArgumento) {
         if (!saldoForm || !saldoModalElement || !saldoPacienteIdInput || !saldoPacienteNombreInput || !saldoPacienteActualInput || !saldoMontoInput) {
             return;
+        }
+
+        let pacienteId = pacienteOrigen;
+        let nombre = nombreArgumento;
+        let saldoActual = saldoArgumento;
+
+        if (pacienteOrigen && typeof pacienteOrigen === 'object' && 'dataset' in pacienteOrigen) {
+            const dataset = pacienteOrigen.dataset;
+            if (dataset.pacienteId) {
+                const parsedId = Number.parseInt(dataset.pacienteId, 10);
+                pacienteId = Number.isNaN(parsedId) ? dataset.pacienteId : parsedId;
+            }
+            if (dataset.pacienteNombre) {
+                nombre = dataset.pacienteNombre;
+            }
+            if (dataset.pacienteSaldo) {
+                const parsedSaldo = Number.parseFloat(dataset.pacienteSaldo);
+                saldoActual = Number.isNaN(parsedSaldo) ? dataset.pacienteSaldo : parsedSaldo;
+            }
         }
 
         hideSaldoAlert();
 
         saldoPacienteIdInput.value = pacienteId || '';
         saldoPacienteNombreInput.value = nombre || '';
-        saldoPacienteActualInput.value = formatCurrency(saldoActual);
+
+        const saldoNumerico = Number.parseFloat(saldoActual);
+        saldoPacienteActualInput.value = formatCurrency(Number.isNaN(saldoNumerico) ? 0 : saldoNumerico);
         saldoMontoInput.value = '';
 
         if (saldoComentarioInput) {
@@ -464,11 +493,30 @@ include '../Modulos/footer.php';
         const modalInstance = bootstrap.Modal.getOrCreateInstance(saldoModalElement);
         modalInstance.show();
     }
-    function openModal(id, nombre) {
+    function openModal(origen, nombreArgumento) {
+        let id = origen;
+        let nombre = nombreArgumento;
+
+        if (origen && typeof origen === 'object' && 'dataset' in origen) {
+            const dataset = origen.dataset;
+            if (dataset.tutorId) {
+                const parsedId = Number.parseInt(dataset.tutorId, 10);
+                id = Number.isNaN(parsedId) ? dataset.tutorId : parsedId;
+            }
+            if (dataset.pacienteNombre) {
+                nombre = dataset.pacienteNombre;
+            }
+        }
+
+        if (id === undefined || id === null || id === '') {
+            console.error('No se proporcionó el identificador del tutor.');
+            return;
+        }
+
         $.ajax({
             url: 'getpaciente.php',
             method: 'GET',
-            data: { idtutor: id, name: nombre },
+            data: { idtutor: id, name: nombre || '' },
             dataType: 'json',
             success: function (response) {
                 document.getElementById('id').value = response.id;
@@ -643,6 +691,7 @@ include '../Modulos/footer.php';
     function filterTable() {
         document.getElementById('filterForm').submit();
     }
+    window.openModal = openModal;
     window.openSaldoModal = openSaldoModal;
     function openModalDatosNino(idTutor) {
         $.ajax({
