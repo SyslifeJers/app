@@ -97,6 +97,19 @@ include '../Modulos/head.php';
         box-shadow: 0 12px 20px rgba(15, 23, 42, 0.12);
         white-space: normal;
         line-height: 1.25;
+
+        background: var(--calendar-event-background, linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%));
+        border-color: var(--calendar-event-border, #60a5fa);
+        color: var(--calendar-event-text, #0f172a);
+    }
+
+    .fc-event.calendar-event.calendar-event-editable .fc-event-main {
+        cursor: grab;
+    }
+
+    .fc-event.calendar-event.calendar-event-editable .fc-event-main:active {
+        cursor: grabbing;
+
     }
 
     .fc-event.calendar-event .calendar-event-body {
@@ -124,23 +137,6 @@ include '../Modulos/head.php';
         opacity: 0.9;
     }
 
-    .fc-event.calendar-event.event-status-creada .fc-event-main {
-        background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-        border-color: #60a5fa;
-        color: #1e3a8a;
-    }
-
-    .fc-event.calendar-event.event-status-reprogramado .fc-event-main {
-        background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
-        border-color: #f59e0b;
-        color: #92400e;
-    }
-
-    .fc-event.calendar-event.event-status-finalizada .fc-event-main {
-        background: linear-gradient(135deg, #dcfce7 0%, #bbf7d0 100%);
-        border-color: #22c55e;
-        color: #166534;
-    }
 
     .fc-event.calendar-event.event-status-cancelada .fc-event-main {
         background: linear-gradient(135deg, #e2e8f0 0%, #cbd5f5 100%);
@@ -225,9 +221,7 @@ include '../Modulos/head.php';
     <div class="row">
         <div class="col-12">
             <div class="card">
-
                 <div class="card-body calendar-wrapper">
-
                     <div id="calendar"></div>
                 </div>
             </div>
@@ -287,7 +281,6 @@ include '../Modulos/head.php';
                 <span class="badge legend-badge status-reprogramado">Reprogramado</span>
                 <span class="badge legend-badge status-finalizada">Finalizada</span>
                 <span class="badge legend-badge status-cancelada">Cancelada</span>
-
             </div>
         </div>
     </div>
@@ -310,7 +303,48 @@ include '../Modulos/head.php';
         };
 
         const defaultStatusStyles = statusStyles['Creada'];
+        const psychologistColorCache = {};
+        let alertTimeoutId = null;
+        let selectedEventId = null;
 
+        function computePsychologistPalette(name) {
+            const key = name && name.trim() !== '' ? name.trim() : 'Sin asignar';
+            if (psychologistColorCache[key]) {
+                return psychologistColorCache[key];
+            }
+
+            let hash = 0;
+            for (let index = 0; index < key.length; index++) {
+                hash = key.charCodeAt(index) + ((hash << 5) - hash);
+                hash |= 0;
+            }
+
+            const absHash = Math.abs(hash);
+            const hue = absHash % 360;
+            const startLightness = 92 - (absHash % 12);
+            const endLightness = 65 - (absHash % 8);
+            const startColor = 'hsl(' + hue + ', 85%, ' + startLightness + '%)';
+            const endColor = 'hsl(' + hue + ', 70%, ' + endLightness + '%)';
+
+            const palette = {
+                background: 'linear-gradient(135deg, ' + startColor + ' 0%, ' + endColor + ' 100%)',
+                border: 'hsl(' + hue + ', 70%, 50%)',
+                text: '#0f172a'
+            };
+
+            psychologistColorCache[key] = palette;
+            return palette;
+        }
+
+        function applyPaletteToMainElement(mainElement, palette) {
+            if (!mainElement || !palette) {
+                return;
+            }
+
+            mainElement.style.setProperty('--calendar-event-background', palette.background);
+            mainElement.style.setProperty('--calendar-event-border', palette.border);
+            mainElement.style.setProperty('--calendar-event-text', palette.text);
+        }
 
         const dateFormatter = new Intl.DateTimeFormat('es-MX', {
             dateStyle: 'medium',
@@ -337,10 +371,57 @@ include '../Modulos/head.php';
             return startTime + ' - ' + timeFormatter.format(endDate);
         }
 
-
         const detailRow = document.getElementById('detail-row');
         const instructions = document.getElementById('calendar-instructions');
         const alertBox = document.getElementById('calendar-alert');
+
+        function showAlert(message, type) {
+            if (!alertBox) {
+                return;
+            }
+
+            if (alertTimeoutId !== null) {
+                clearTimeout(alertTimeoutId);
+                alertTimeoutId = null;
+            }
+
+            const variants = ['alert-primary', 'alert-secondary', 'alert-success', 'alert-danger', 'alert-warning', 'alert-info', 'alert-light', 'alert-dark'];
+            variants.forEach(function (variant) {
+                alertBox.classList.remove(variant);
+            });
+
+            const chosenClass = type ? 'alert-' + type : 'alert-info';
+            alertBox.classList.add(chosenClass);
+            alertBox.classList.remove('d-none');
+            alertBox.textContent = message;
+        }
+
+        function hideAlert() {
+            if (!alertBox) {
+                return;
+            }
+
+            if (alertTimeoutId !== null) {
+                clearTimeout(alertTimeoutId);
+                alertTimeoutId = null;
+            }
+
+            alertBox.textContent = '';
+            alertBox.classList.add('d-none');
+        }
+
+        function showTemporaryAlert(message, type, duration) {
+            showAlert(message, type);
+
+            if (!alertBox) {
+                return;
+            }
+
+            const timeout = typeof duration === 'number' ? duration : 4000;
+            alertTimeoutId = window.setTimeout(function () {
+                hideAlert();
+            }, timeout);
+        }
 
         const detailFields = {
             paciente: document.getElementById('detail-paciente'),
@@ -352,6 +433,63 @@ include '../Modulos/head.php';
             forma: document.getElementById('detail-forma'),
             costo: document.getElementById('detail-costo')
         };
+
+        function updateDetail(event) {
+            if (!event) {
+                return;
+            }
+
+            const props = event.extendedProps || {};
+
+            if (detailFields.paciente) {
+                detailFields.paciente.textContent = props.paciente || 'Sin registro';
+            }
+
+            if (detailFields.psicologo) {
+                detailFields.psicologo.textContent = props.psicologo || 'Sin registro';
+            }
+
+            if (detailFields.estatus) {
+                detailFields.estatus.innerHTML = '';
+
+                if (props.estatus) {
+                    const badge = document.createElement('span');
+                    badge.classList.add('status-pill');
+
+                    if (props.statusBadgeClass) {
+                        badge.classList.add(props.statusBadgeClass);
+                    }
+
+                    badge.textContent = props.estatus;
+                    detailFields.estatus.appendChild(badge);
+                } else {
+                    detailFields.estatus.textContent = 'Sin registro';
+                }
+            }
+
+            if (detailFields.tipo) {
+                detailFields.tipo.textContent = props.tipo || 'Sin registro';
+            }
+
+            if (detailFields.forma) {
+                detailFields.forma.textContent = props.forma_pago || 'No especificado';
+            }
+
+            if (detailFields.costo) {
+                const costoValido = props.costo !== null && props.costo !== undefined;
+                detailFields.costo.textContent = costoValido
+                    ? '$' + Number(props.costo).toFixed(2)
+                    : 'No especificado';
+            }
+
+            if (detailFields.inicio) {
+                detailFields.inicio.textContent = event.start ? dateFormatter.format(event.start) : 'Sin registro';
+            }
+
+            if (detailFields.fin) {
+                detailFields.fin.textContent = event.end ? dateFormatter.format(event.end) : 'Sin registro';
+            }
+        }
 
         const calendar = new FullCalendar.Calendar(calendarElement, {
             initialView: 'dayGridMonth',
@@ -371,6 +509,8 @@ include '../Modulos/head.php';
             },
             navLinks: true,
             nowIndicator: true,
+            editable: true,
+            eventDurationEditable: false,
             eventTimeFormat: {
                 hour: '2-digit',
                 minute: '2-digit',
@@ -396,53 +536,77 @@ include '../Modulos/head.php';
                             throw new Error('Formato de datos inesperado');
                         }
 
-                        const events = payload.data.map(function (item) {
+                        const now = new Date();
 
+                        const events = payload.data.map(function (item) {
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
                             const paciente = item.paciente || 'Sin registro';
                             const psicologo = item.psicologo || 'Sin registro';
                             const title = 'Paciente: ' + paciente + ' | Psicóloga: ' + psicologo;
 
+                            const classNames = ['calendar-event'];
+                            if (statusStyle.eventClass) {
+                                classNames.push(statusStyle.eventClass);
+                            }
+
+                            const palette = computePsychologistPalette(psicologo);
+                            const startDate = item.programado ? new Date(item.programado) : null;
+                            const endDate = item.termina ? new Date(item.termina) : null;
+                            const hasValidStart = startDate instanceof Date && !Number.isNaN(startDate.getTime());
+                            const hasValidEnd = endDate instanceof Date && !Number.isNaN(endDate.getTime());
+                            const isStatusEditable = item.estatus !== 'Finalizada' && item.estatus !== 'Cancelada';
+                            const isEditable = Boolean(hasValidStart && hasValidEnd && isStatusEditable && endDate.getTime() >= now.getTime());
+
+                            if (isEditable) {
+                                classNames.push('calendar-event-editable');
+                            }
 
                             return {
                                 id: item.id,
                                 title: title,
                                 start: item.programado,
                                 end: item.termina,
-                                classNames: ['calendar-event', statusStyle.eventClass],
+                                classNames: classNames,
+                                startEditable: isEditable,
+                                durationEditable: false,
                                 extendedProps: {
                                     paciente: paciente,
                                     psicologo: psicologo,
                                     estatus: item.estatus,
                                     statusBadgeClass: statusStyle.badgeClass,
-
                                     tipo: item.tipo,
                                     forma_pago: item.forma_pago,
                                     costo: item.costo,
                                     programado: item.programado,
-                                    termina: item.termina
+                                    termina: item.termina,
+                                    psicologoColor: palette,
+                                    isEditable: isEditable
                                 }
                             };
                         });
 
-                        if (alertBox) {
-                            alertBox.classList.add('d-none');
-                            alertBox.textContent = '';
-                        }
-
+                        hideAlert();
                         successCallback(events);
                     })
                     .catch(function (error) {
                         console.error(error);
-                        if (alertBox) {
-                            alertBox.textContent = 'No se pudieron cargar las citas. Por favor intenta nuevamente.';
-                            alertBox.classList.remove('d-none');
+                        showAlert('No se pudieron cargar las citas. Por favor intenta nuevamente.', 'danger');
+                        if (typeof failureCallback === 'function') {
+                            failureCallback(error);
                         }
-                        failureCallback(error);
                     });
             },
-            eventContent: function (arg) {
+            eventAllow: function (dropInfo, draggedEvent) {
+                const props = draggedEvent.extendedProps || {};
+                if (!props.isEditable) {
+                    return false;
+                }
 
+                const now = new Date();
+                const minAllowed = new Date(now.getTime() - 60 * 1000);
+                return dropInfo.start >= minAllowed;
+            },
+            eventContent: function (arg) {
                 const content = document.createElement('div');
                 content.classList.add('calendar-event-body');
 
@@ -463,13 +627,25 @@ include '../Modulos/head.php';
                     content.appendChild(psicologo);
                 }
 
-
                 return { domNodes: [content] };
+            },
+            eventDidMount: function (info) {
+                if (!info.el) {
+                    return;
+                }
+
+                const props = info.event.extendedProps || {};
+                if (props.estatus === 'Cancelada') {
+                    return;
+                }
+
+                const mainElement = info.el.querySelector('.fc-event-main');
+                applyPaletteToMainElement(mainElement, props.psicologoColor);
             },
             eventClick: function (info) {
                 info.jsEvent.preventDefault();
+                selectedEventId = info.event.id;
 
-                const props = info.event.extendedProps;
                 if (instructions) {
                     instructions.classList.add('d-none');
                 }
@@ -477,36 +653,80 @@ include '../Modulos/head.php';
                     detailRow.classList.remove('d-none');
                 }
 
-                detailFields.paciente.textContent = props.paciente || 'Sin registro';
-                detailFields.psicologo.textContent = props.psicologo || 'Sin registro';
+                updateDetail(info.event);
+            },
+            eventDrop: function (info) {
+                const event = info.event;
+                const newStart = event.start;
 
-
-                if (detailFields.estatus) {
-                    detailFields.estatus.innerHTML = '';
-                    if (props.estatus) {
-                        const badge = document.createElement('span');
-                        badge.classList.add('status-pill');
-                        if (props.statusBadgeClass) {
-                            badge.classList.add(props.statusBadgeClass);
-                        }
-                        badge.textContent = props.estatus;
-                        detailFields.estatus.appendChild(badge);
-                    } else {
-                        detailFields.estatus.textContent = 'Sin registro';
-                    }
+                if (!newStart) {
+                    info.revert();
+                    showAlert('La cita necesita una fecha y hora válidas.', 'danger');
+                    return;
                 }
 
-                detailFields.tipo.textContent = props.tipo || 'Sin registro';
-                detailFields.forma.textContent = props.forma_pago || 'No especificado';
-                detailFields.costo.textContent =
-                    props.costo !== null && props.costo !== undefined
-                        ? '$' + Number(props.costo).toFixed(2)
-                        : 'No especificado';
+                const requestBody = {
+                    programado: newStart.toISOString()
+                };
 
-                const inicio = info.event.start ? dateFormatter.format(info.event.start) : 'Sin registro';
-                const fin = info.event.end ? dateFormatter.format(info.event.end) : 'Sin registro';
-                detailFields.inicio.textContent = inicio;
-                detailFields.fin.textContent = fin;
+                fetch('../api/citas.php?id=' + encodeURIComponent(event.id), {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify(requestBody)
+                })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            throw new Error('No se pudo guardar la reprogramación.');
+                        }
+                        return response.json();
+                    })
+                    .then(function (data) {
+                        if (data && data.error) {
+                            throw new Error(data.error);
+                        }
+
+                        const endDate = event.end
+                            ? event.end.getTime()
+                            : event.start.getTime() + 60 * 60 * 1000;
+                        const props = event.extendedProps || {};
+                        const stillEditable = props.estatus !== 'Finalizada'
+                            && props.estatus !== 'Cancelada'
+                            && endDate >= Date.now();
+
+                        if (event.start) {
+                            event.setExtendedProp('programado', event.start.toISOString());
+                        }
+                        if (event.end) {
+                            event.setExtendedProp('termina', event.end.toISOString());
+                        }
+
+                        event.setExtendedProp('isEditable', stillEditable);
+                        event.setProp('startEditable', stillEditable);
+                        event.setProp('durationEditable', false);
+
+                        const currentClassNames = event.classNames ? event.classNames.slice() : [];
+                        const editableIndex = currentClassNames.indexOf('calendar-event-editable');
+                        if (stillEditable && editableIndex === -1) {
+                            currentClassNames.push('calendar-event-editable');
+                        } else if (!stillEditable && editableIndex !== -1) {
+                            currentClassNames.splice(editableIndex, 1);
+                        }
+                        event.setProp('classNames', currentClassNames);
+
+                        if (selectedEventId === event.id) {
+                            updateDetail(event);
+                        }
+
+                        showTemporaryAlert('La cita se reprogramó correctamente.', 'success');
+                    })
+                    .catch(function (error) {
+                        console.error(error);
+                        info.revert();
+                        showAlert(error.message || 'No se pudo reprogramar la cita.', 'danger');
+                    });
             }
         });
 
