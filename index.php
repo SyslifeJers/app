@@ -82,6 +82,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
           $joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
 
           $sql = "SELECT ci.id,
+       ci.IdNino AS paciente_id,
        n.name,
        us.name as Psicologo,
        ci.costo,
@@ -89,7 +90,9 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
        ci.Tipo,
-       es.name as Estatus" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
+       ci.FormaPago,
+       es.name as Estatus,
+       COALESCE(n.saldo_paquete, 0) AS saldo_paquete" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
 FROM Cita ci
 INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
@@ -112,9 +115,9 @@ ORDER BY ci.Programado ASC;";
                 <th>Paciente</th>
                 <th>Psicólogo</th>
                 <th>Costo</th>
-
                 <th>Hora</th>
                 <th>Tipo</th>
+                <th>Forma de pago</th>
                 <th>Estatus</th>
                 <th>Solicitudes de reprogramación</th>
                 <th>Solicitudes de cancelación</th>
@@ -133,6 +136,8 @@ ORDER BY ci.Programado ASC;";
               $badgeClassCancelacion = $pendientesCancelacion > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
 
               $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
+              $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
+              $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
               if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
                 $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
@@ -150,8 +155,21 @@ ORDER BY ci.Programado ASC;";
                 $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
               }
 
-              if (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
-                $botones[] = '<button class="btn btn-success btn-sm" onclick=" actualizarCitaPago(' . $row['id'] . ',4)">Pagar</button>';
+              if ($formaPagoRegistrada !== '') {
+                $botones[] = '<span class="badge bg-success">Pago registrado</span>';
+                if ($estatusActual !== 'finalizada' && $rolUsuario != 1) {
+                  $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
+                }
+              } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
+                $onclickPago = sprintf(
+                  'actualizarCitaPago(%d, %d, %f, %d, %f)',
+                  $row['id'],
+                  4,
+                  (float) $row['costo'],
+                  (int) $row['paciente_id'],
+                  (float) $row['saldo_paquete']
+                );
+                $botones[] = '<button class="btn btn-success btn-sm" onclick="' . $onclickPago . '">Pagar</button>';
               }
 
               echo '<tr>';
@@ -162,6 +180,8 @@ ORDER BY ci.Programado ASC;";
               echo '<td>' . $row['costo'] . '</td>';
               echo '<td>' . $row['Hora'] . '</td>';
               echo '<td>' . $row['Tipo'] . '</td>';
+              $formaPagoTexto = $formaPagoRegistrada !== '' ? $formaPagoRegistrada : 'Sin registrar';
+              echo '<td>' . htmlspecialchars($formaPagoTexto, ENT_QUOTES, 'UTF-8') . '</td>';
               echo '<td>' . $row['Estatus'] . '</td>';
               echo '<td><span class="' . $badgeClassReprogramacion . '">' . $textoBadgeReprogramacion . '</span></td>';
               echo '<td><span class="' . $badgeClassCancelacion . '">' . $textoBadgeCancelacion . '</span></td>';
@@ -246,6 +266,12 @@ ORDER BY ci.Programado ASC;";
               </select>
             </div>
             <div class="form-group">
+              <label for="paqueteSelect">Paquete</label>
+              <select name="paquete" id="paqueteSelect" class="form-select" onchange="handlePaqueteChange()">
+                <option value="">Sin paquete</option>
+              </select>
+            </div>
+            <div class="form-group">
               <label for="citaDia"> Día de la cita</label>
               <input type="datetime-local" id="citaDia" name="citaDia" class="form-select" onchange="updateResumen()">
             </div>
@@ -282,7 +308,24 @@ ORDER BY ci.Programado ASC;";
               </div>
               <div class="form-group">
                 <label for="resumenCosto">Costo</label>
-                <input type="number" name="resumenCosto" id="resumenCosto" class="form-control" >
+                <input type="number" name="resumenCosto" id="resumenCosto" class="form-control" min="0" step="0.01">
+              </div>
+              <div class="form-group">
+                <label for="resumenPaquete">Paquete</label>
+                <input type="text" name="resumenPaquete" id="resumenPaquete" class="form-control" value="Sin paquete" readonly>
+                <input type="hidden" name="sendIdPaquete" id="sendIdPaquete">
+              </div>
+              <div class="form-group d-none" id="grupoMetodoPaquete">
+                <label for="paqueteMetodo">Método del primer pago</label>
+                <select name="paqueteMetodo" id="paqueteMetodo" class="form-select">
+                  <option value="">Selecciona una opción</option>
+                  <option value="Efectivo">Efectivo</option>
+                  <option value="Transferencia">Transferencia</option>
+                </select>
+              </div>
+              <div class="form-group d-none" id="grupoSaldoPaquete">
+                <label for="resumenSaldoPaquete">Saldo adicional</label>
+                <input type="text" id="resumenSaldoPaquete" class="form-control" readonly>
               </div>
               <div class="form-group">
                 <label for="resumenFecha">Fecha de la Cita</label>
@@ -322,11 +365,48 @@ ORDER BY ci.Programado ASC;";
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <select id="tipoPago" class="form-select">
-                        <option value="Efectivo">Efectivo</option>
-                        <option value="Transferencia">Transferencia</option>
-                        <option value="Tarjeta">Tarjeta</option>
-                    </select>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Paciente</label>
+                        <p id="modalPacienteNombre" class="form-control-plaintext mb-0"></p>
+                    </div>
+                    <div class="row mb-3">
+                        <div class="col">
+                            <label class="form-label fw-semibold">Costo de la cita</label>
+                            <p id="modalCostoCita" class="form-control-plaintext mb-0"></p>
+                        </div>
+                        <div class="col">
+                            <label class="form-label fw-semibold">Saldo disponible</label>
+                            <p id="modalSaldoActual" class="form-control-plaintext mb-0"></p>
+                        </div>
+                    </div>
+                    <div class="alert alert-warning d-none" id="alertaSaldoInsuficiente" role="alert">
+                        El monto asignado al saldo excede el saldo disponible del paciente.
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-semibold">Pagos registrados</label>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0" id="tablaPagos">
+                                <thead>
+                                    <tr>
+                                        <th scope="col">Forma de pago</th>
+                                        <th scope="col" style="width: 160px;">Monto</th>
+                                        <th scope="col" style="width: 60px;">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+                        <div class="form-text">Registra una o varias formas de pago hasta cubrir el costo de la cita.</div>
+                    </div>
+                    <div class="d-flex gap-2 mb-3 flex-wrap">
+                        <button type="button" class="btn btn-outline-primary btn-sm" id="agregarPago">
+                            Agregar forma de pago
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" id="agregarPagoSaldo">
+                            Usar saldo disponible
+                        </button>
+                    </div>
+                    <p class="fw-semibold mb-0" id="resumenPagos"></p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
@@ -365,330 +445,5 @@ ORDER BY ci.Programado ASC;";
 include 'Modulos/footer.php';
 ?>
 
-<script>
-  const ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;
-  function actualizarCitaPago(idCita, estatus) {
-    // Mostrar el modal
-    const modal = new bootstrap.Modal(document.getElementById('ModalTipoPago'), {
-        keyboard: false
-    });
-    modal.show();
-
-    // Manejar la confirmación del pago
-    document.getElementById('confirmarPago').onclick = function () {
-        const tipoPago = document.getElementById('tipoPago').value;
-
-        // Realizar la solicitud AJAX con el tipo de pago
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "cancelar.php", true);
-        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        xhr.onreadystatechange = function () {
-            if (xhr.readyState === 4 && xhr.status === 200) {
-                location.reload();
-                // Puedes redirigir o realizar otras acciones aquí
-            }
-        };
-
-        const params = `citaId=${idCita}&estatus=${estatus}&formaPago=${tipoPago}`;
-        xhr.send(params);
-
-        // Ocultar el modal
-        modal.hide();
-    };
-}
-function enviarFormularioJSON() {
-  const form = document.getElementById('formCita');
-  const formData = new FormData(form);
-
-  fetch('procesar_cita.php', {
-    method: 'POST',
-    body: formData
-  })
-  .then(response => response.json())
-  .then(data => {
-    if (data.success) {
-      alert('Cita guardada con éxito');
-      window.location.href = 'index.php'; // o mostrar modal de éxito
-    } else {
-      alert('Error: ' + data.message);
-    }
-  })
-  .catch(error => {
-    alert('Error en el servidor: ' + error.message);
-  });
-}
-
-  function actualizarCita(idCita, estatus) {
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "cancelar.php", true);
-    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-
-    xhr.onreadystatechange = function () {
-      if (xhr.readyState === 4 && xhr.status === 200) {
-        location.reload();
-        //alert(xhr.responseText);
-        // Puedes redirigir o realizar otras acciones aquí
-      }
-    };
-
-      const params = `citaId=${idCita}&estatus=${estatus}`;
-      xhr.send(params);
-
-  }
-  function Reprogramar(citaId) {
-    // Asigna el ID de la cita al campo del formulario
-    document.getElementById('citaId').value = citaId;
-    const fechaProgramadaInput = document.getElementById('fechaProgramada');
-    if (fechaProgramadaInput) {
-      fechaProgramadaInput.value = '';
-    }
-
-    const modalTitle = document.getElementById('updateModalLabel');
-    const submitButton = document.getElementById('updateSubmitButton');
-    const aviso = document.getElementById('solicitudAviso');
-
-    if (ES_VENTAS) {
-      if (modalTitle) modalTitle.textContent = 'Solicitar reprogramación';
-      if (submitButton) submitButton.textContent = 'Enviar solicitud';
-      if (aviso) aviso.style.display = 'block';
-    } else {
-      if (modalTitle) modalTitle.textContent = 'Actualizar Fecha de Cita';
-      if (submitButton) submitButton.textContent = 'Actualizar';
-      if (aviso) aviso.style.display = 'none';
-    }
-
-    // Abre el modal
-    var updateModal = new bootstrap.Modal(document.getElementById('updateModal'));
-    updateModal.show();
-  }
-  function validarFormulario(event) {
-    event.preventDefault(); // Evita el envío del formulario
-
-    // Obtener valores de los campos
-    const cliente = document.getElementById('resumenCliente').value;
-    const psicologo = document.getElementById('resumenPsicologo').value;
-    const tipo = document.getElementById('resumenTipo').value;
-    const costo = document.getElementById('resumenCosto').value;
-    const fecha = document.getElementById('resumenFecha').value;
-
-    // Validar que los campos no estén vacíos
-    if (!cliente || !psicologo || !tipo || !costo || !fecha) {
-      alert('Todos los campos son obligatorios.');
-      return false;
-    }
-
-    // Validar que la fecha de la cita sea igual o mayor a la fecha actual
-    const fechaCita = new Date(fecha);
-    const fechaActual = new Date();
-
-    if (fechaCita < fechaActual) {
-      alert('La fecha de la cita debe ser igual o mayor a la fecha actual.');
-      return false;
-    }
-
-    // Si todo es válido, enviar el formulario
-enviarFormularioJSON();
-
-  }
-
-
-  function updateResumen() {
-    const nameSelect = document.getElementById('nameSelect');
-    const idEmpleado = document.getElementById('idEmpleado');
-    const costosSelect = document.getElementById('costosSelect');
-    const citaDia = document.getElementById('citaDia');
-
-    document.getElementById('resumenCliente').value = nameSelect.options[nameSelect.selectedIndex].text;
-    document.getElementById('sendIdCliente').value = nameSelect.options[nameSelect.selectedIndex].value;
-    document.getElementById('resumenPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].text;
-    document.getElementById('sendIdPsicologo').value = idEmpleado.options[idEmpleado.selectedIndex].value;
-    var texts = costosSelect.options[costosSelect.selectedIndex].text;
-    var textoLimpio = texts.replace(/[0-9:$.]/g, '');
-    document.getElementById('resumenTipo').value = textoLimpio;
-    document.getElementById('resumenCosto').value = costosSelect.options[costosSelect.selectedIndex].value;
-    document.getElementById('resumenFecha').value = citaDia.value;
-
-    revisarCita();
-  }
-  function loadAll() {
-    loadCostos();
-    loadNames();
-    loadEmpleados();
-
-  }
-  function loadCostos() {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', 'Modulos/getPrecios.php', true);
-    xhr.onload = function () {
-      if (this.status === 200) {
-        var jsonString = this.responseText;
-        var jsonItems = jsonString.match(/({.*?})/g);
-
-        // Convertir cada cadena JSON en un objeto JavaScript
-        var items = jsonItems.map(function (item) {
-          return JSON.parse(item);
-        });
-        items.forEach(function (item) {
-          $('#costosSelect').append($('<option>', {
-            value: item.costo,
-            text: item.name
-          }));
-        });
-        /*                     let names = JSON.parse(this.responseText);
-                  let options = '<option value="">Seleccione un nombre</option>';
-                  names.forEach(function (id,name) {
-                      options += '<option value="${name}">${name}</option>';
-                  });
-                  document.getElementById('nameSelect').innerHTML = options; */
-      }
-    };
-    xhr.send();
-  }
-  function loadEmpleados() {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', 'Modulos/getPsicologos.php', true);
-    xhr.onload = function () {
-      if (this.status === 200) {
-        var jsonString = this.responseText;
-        var jsonItems = jsonString.match(/({.*?})/g);
-
-        // Convertir cada cadena JSON en un objeto JavaScript
-        var items = jsonItems.map(function (item) {
-          return JSON.parse(item);
-        });
-        items.forEach(function (item) {
-          $('#idEmpleado').append($('<option>', {
-            value: item.id,
-            text: item.name
-          }));
-        });
-
-      }
-    };
-    xhr.send();
-
-  }
-
-  function loadNames() {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', 'get_names.php', true);
-    xhr.onload = function () {
-      if (this.status === 200) {
-        var jsonString = this.responseText;
-        var jsonItems = jsonString.match(/({.*?})/g);
-
-        // Convertir cada cadena JSON en un objeto JavaScript
-        var items = jsonItems.map(function (item) {
-          return JSON.parse(item);
-        });
-        items.forEach(function (item) {
-          $('#nameSelect').append($('<option>', {
-            value: item.id,
-            text: item.name
-          }));
-        });
-        /*                     let names = JSON.parse(this.responseText);
-                  let options = '<option value="">Seleccione un nombre</option>';
-                  names.forEach(function (id,name) {
-                      options += '<option value="${name}">${name}</option>';
-                  });
-                  document.getElementById('nameSelect').innerHTML = options; */
-      }
-    };
-    xhr.send();
-
-  }
-
-  function nini(id) {
-    $("#nameSelect").val(id);
-    updateResumen();
-  }
-  function searchNino() {
-
-    const search = document.getElementById('search').value;
-
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', `search.php?search=${search}`, true);
-    xhr.onload = function () {
-      if (this.status === 200) {
-        document.getElementById('results').innerHTML = this.responseText;
-      }
-    };
-    xhr.send();
-
-    return false; // Evitar el envío del formulario
-  }
-
-  window.onload = loadAll;
-
-  const citaDiaInput = document.getElementById('citaDia');
-
-  // Crear una nueva fecha que sea mañana
-  const today = new Date();
-  const tomorrow = new Date(today);
-  tomorrow.setDate(today.getDate());
-
-  // Formatear la fecha en el formato adecuado para datetime-local
-  const year = tomorrow.getFullYear();
-  const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-  const day = String(tomorrow.getDate()).padStart(2, '0');
-  const hours = String(tomorrow.getHours()).padStart(2, '0');
-  const minutes = String(tomorrow.getMinutes()).padStart(2, '0');
-
-  // Asignar la fecha mínima al input
-  const minDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
-  citaDiaInput.min = minDateTime;
-  $(document).ready(function () {
-    document.getElementById('idResultado').style.display = "none";
-    $('#myTable').DataTable({
-      language: {
-        lengthMenu: 'Número de filas _MENU_',
-        zeroRecords: 'No encontró nada, usa los filtros para pulir la busqueda',
-        info: 'Página _PAGE_ de _PAGES_',
-        search: 'Buscar:',
-        paginate: {
-          first: 'Primero',
-          last: 'Ultimo',
-          next: 'Siguiente',
-          previous: 'Previo'
-        },
-        infoEmpty: 'No hay registros disponibles',
-        infoFiltered: '(Buscamos en _MAX_ resultados)',
-      },
-    });
-  });
-  function revisarCita() {
-    var idUsuario = document.getElementById('sendIdPsicologo').value;
-    var resumenFecha = document.getElementById('resumenFecha').value;
-    console.log(idUsuario, resumenFecha)
-    var formData = new FormData();
-    formData.append('IdUsuario', idUsuario);
-    formData.append('resumenFecha', resumenFecha);
-
-    fetch('Modulos/validarCita.php', {
-      method: 'POST',
-      body: formData
-    })
-      .then(response => response.json())
-      .then(data => {
-        var resultadoDiv = document.getElementById('resultado');
-        var resultadoDivGeneral = document.getElementById('idResultado');
-        resultadoDiv.innerHTML = '';
-
-        if (data.success) {
-          resultadoDivGeneral.style.display = "none";
-          resultadoDiv.innerHTML = 'La cita es válida.';
-        } else {
-          resultadoDivGeneral.style.display = "block";
-          resultadoDiv.innerHTML = ' <p class="card-category">' + data.message + '</p>';
-          if (data.citas && data.citas.length > 0) {
-            data.citas.forEach(function (cita) {
-              resultadoDiv.innerHTML += 'Fecha: ' + cita.fecha + ' - Niño: ' + cita.name + '<br>';
-            });
-          }
-        }
-      })
-      .catch(error => console.error('Error:', error));
-  };
-</script>
+<script>window.ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;</script>
+<script src="assets/js/citas.js"></script>

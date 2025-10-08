@@ -97,6 +97,7 @@ include '../Modulos/head.php';
         box-shadow: 0 12px 20px rgba(15, 23, 42, 0.12);
         white-space: normal;
         line-height: 1.25;
+
         background: var(--calendar-event-background, linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%));
         border-color: var(--calendar-event-border, #60a5fa);
         color: var(--calendar-event-text, #0f172a);
@@ -108,6 +109,7 @@ include '../Modulos/head.php';
 
     .fc-event.calendar-event.calendar-event-editable .fc-event-main:active {
         cursor: grabbing;
+
     }
 
     .fc-event.calendar-event .calendar-event-body {
@@ -134,6 +136,7 @@ include '../Modulos/head.php';
         font-size: 0.78rem;
         opacity: 0.9;
     }
+
 
     .fc-event.calendar-event.event-status-cancelada .fc-event-main {
         background: linear-gradient(135deg, #e2e8f0 0%, #cbd5f5 100%);
@@ -192,6 +195,7 @@ include '../Modulos/head.php';
         .calendar-wrapper {
             padding: 1rem;
         }
+
     }
 </style>
 

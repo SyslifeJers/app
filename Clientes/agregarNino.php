@@ -15,7 +15,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn = conectar();
     $conn->set_charset("utf8");
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO `nino`(`id`, `name`, `activo`, `edad`, `Observacion`, `FechaIngreso`, `idtutor`) VALUES (null,?,1,?,?,?,?)");
+    $stmt = $conn->prepare("INSERT INTO `nino`(`id`, `name`, `activo`, `edad`, `Observacion`, `FechaIngreso`, `idtutor`, `saldo_paquete`) VALUES (null, ?, 1, ?, ?, ?, ?, 0)");
     $stmt->bind_param("sissi", $name,  $edad, $Observaciones, $FechaIngreso, $id);
 
     // Ejecutar la consulta
