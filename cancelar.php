@@ -17,7 +17,7 @@ $rolUsuario = $_SESSION['rol'] ?? null;
 
 $ROL_VENTAS = 1;
 $ROL_ADMIN = 3;
-$ROL_COORDINADOR = 4;
+$ROL_COORDINADOR = 5;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
@@ -30,7 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($pagosDecodificados as $pagoDetalle) {
                 $metodo = isset($pagoDetalle['metodo']) ? trim((string) $pagoDetalle['metodo']) : '';
                 $monto = isset($pagoDetalle['monto']) ? (float) $pagoDetalle['monto'] : 0.0;
-                if ($metodo !== '' && $monto > 0) {
+                if ($metodo !== '' && $monto >= 0) {
                     $pagosRegistrados[] = [
                         'metodo' => substr($metodo, 0, 50),
                         'monto' => $monto
@@ -144,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
             }
 
-            if (empty($pagosProcesados) && $formaPago !== null && $formaPago !== '' && $montoPago > 0) {
+            if (empty($pagosProcesados) && $formaPago !== null && $formaPago !== '' && $montoPago >= 0) {
                 $pagosProcesados[] = [
                     'metodo' => $formaPago,
                     'monto' => $montoPago
@@ -165,9 +165,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $metodo = isset($pagoDetalle['metodo']) ? trim((string) $pagoDetalle['metodo']) : '';
                 $monto = isset($pagoDetalle['monto']) ? (float) $pagoDetalle['monto'] : 0.0;
 
-                if ($metodo === '' || $monto <= 0) {
-                    throw new Exception('Cada forma de pago debe incluir un método y un monto mayor a cero.');
-                }
+              //  if ($metodo === '' || $monto <= 0) {
+                //    throw new Exception('Cada forma de pago debe incluir un método y un monto mayor a cero.');
+               // }
 
                 if (strlen($metodo) > 50) {
                     $metodo = substr($metodo, 0, 50);
