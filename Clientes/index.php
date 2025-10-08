@@ -79,7 +79,10 @@ include '../Modulos/head.php';
                                    c.`name`,
                                    c.`activo`,
                                    c.`telefono`,
-                                   GROUP_CONCAT(n.name) as Pacientes,
+                                   GROUP_CONCAT(
+                                       CONCAT_WS('::', n.id, n.name, COALESCE(n.saldo_paquete, 0))
+                                       SEPARATOR '||'
+                                   ) as Pacientes,
                                    c.`fecha` as Registro
                        FROM `Clientes` c
                        LEFT JOIN `nino` n ON n.`idtutor` = c.`id`";
@@ -101,24 +104,55 @@ include '../Modulos/head.php';
                 $result = $conn->query($sql);
 
                 // Generación de filas de la tabla
+                $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
+
                 while ($row = $result->fetch_assoc()) {
                     $acti = $row["activo"] == 1 ? 'Sí' : 'No';
                     echo '<tr>';
                     echo '<td>' . htmlspecialchars($row['id']) . '</td>';
                     echo '<td>' . htmlspecialchars($row['name']) . '</td>';
                     echo '<td>';
-                    if ($row['Pacientes'] != null) {
-                        //. htmlspecialchars($row['Pasientes']) . 
-                        $pasientes = explode(',', $row['Pacientes']);
-                        foreach ($pasientes as $index => $pasiente) {
-                            echo trim($pasiente) . '<a href="#" onclick="openModal(' . ($row['id']) . ', \'' . trim($pasiente) . '\')"> Editar</a>';
-                            if ($index < count($pasientes) - 1) {
-                                echo '<BR>';
+                    if ($row['Pacientes'] !== null) {
+                        $pacientes = explode('||', (string) $row['Pacientes']);
+                        $totalPacientes = count($pacientes);
+
+                        foreach ($pacientes as $index => $pacienteRaw) {
+                            $pacienteRaw = trim($pacienteRaw);
+                            if ($pacienteRaw === '') {
+                                continue;
+                            }
+
+                            $partes = explode('::', $pacienteRaw);
+                            $pacienteId = isset($partes[0]) ? (int) $partes[0] : 0;
+                            $pacienteNombre = $partes[1] ?? '';
+                            $pacienteSaldo = isset($partes[2]) ? (float) $partes[2] : 0.0;
+
+                            $pacienteNombreHtml = htmlspecialchars($pacienteNombre, ENT_QUOTES, 'UTF-8');
+                            $pacienteSaldoHtml = '$' . number_format($pacienteSaldo, 2);
+                            $pacienteNombreJs = json_encode($pacienteNombre, JSON_HEX_APOS | JSON_HEX_QUOT);
+                            $pacienteSaldoJs = json_encode($pacienteSaldo);
+
+                            echo '<div class="mb-3">';
+                            echo '<div class="fw-semibold">' . $pacienteNombreHtml . '</div>';
+                            echo '<div class="text-muted small">Saldo: ' . $pacienteSaldoHtml . '</div>';
+                            echo '<div class="d-flex flex-wrap gap-3 mt-2">';
+                            echo '<a href="#" class="link-primary text-decoration-none" onclick="openModal(' . (int) $row['id'] . ', ' . $pacienteNombreJs . '); return false;">Editar</a>';
+
+                            if (in_array($rolUsuario, [3, 5], true)) {
+                                echo '<a href="#" class="text-success text-decoration-none" onclick="openSaldoModal(' . $pacienteId . ', ' . $pacienteNombreJs . ', ' . $pacienteSaldoJs . '); return false;">Agregar saldo</a>';
+                            }
+                            echo '</div>';
+                            echo '</div>';
+
+                            if ($index < $totalPacientes - 1) {
+                                echo '<hr class="my-2">';
                             }
                         }
-                        echo '<hr><button class="btn btn-info btn-sm" onclick="openModalDatosNino(' . $row['id'] . ')">Ver detalle</button>';
+
+                        echo '<hr><button class="btn btn-info btn-sm" onclick="openModalDatosNino(' . (int) $row['id'] . ')">Ver detalle</button>';
                     }
                     echo '</td>';
+
                     echo '<td>' . htmlspecialchars($acti) . '</td>';
                     echo '<td>' . htmlspecialchars($row['Registro']) . '</td>';
                     echo '<td>' . htmlspecialchars($row['telefono']) . '</td>';
@@ -248,6 +282,42 @@ include '../Modulos/head.php';
         </div>
     </div>
 </div>
+<div class="modal fade" id="modalSaldo" tabindex="-1" aria-labelledby="modalSaldoLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="saldoForm">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="modalSaldoLabel">Agregar saldo al paciente</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="saldoAlert" class="alert d-none" role="alert"></div>
+                    <input type="hidden" id="saldoPacienteId">
+                    <div class="mb-3">
+                        <label class="form-label">Paciente</label>
+                        <input type="text" class="form-control" id="saldoPacienteNombre" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Saldo actual</label>
+                        <input type="text" class="form-control" id="saldoPacienteActual" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="saldoMonto">Monto a agregar</label>
+                        <input type="number" class="form-control" id="saldoMonto" min="0" step="0.01" required>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="saldoComentario">Comentario (opcional)</label>
+                        <textarea class="form-control" id="saldoComentario" rows="2" maxlength="255"></textarea>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Agregar saldo</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 <!-- Modal `id`, `name`, `telefono`, `correo` -->
 <div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -331,6 +401,69 @@ include '../Modulos/footer.php';
 ?>
 
 <script>editModalpacien
+    const saldoModalElement = document.getElementById('modalSaldo');
+    const saldoForm = document.getElementById('saldoForm');
+    const saldoAlert = document.getElementById('saldoAlert');
+    const saldoPacienteIdInput = document.getElementById('saldoPacienteId');
+    const saldoPacienteNombreInput = document.getElementById('saldoPacienteNombre');
+    const saldoPacienteActualInput = document.getElementById('saldoPacienteActual');
+    const saldoMontoInput = document.getElementById('saldoMonto');
+    const saldoComentarioInput = document.getElementById('saldoComentario');
+    const saldoSubmitButton = saldoForm ? saldoForm.querySelector('button[type="submit"]') : null;
+    const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+    function formatCurrency(value) {
+        const numericValue = Number.parseFloat(value);
+        return formatoMoneda.format(Number.isFinite(numericValue) ? numericValue : 0);
+    }
+
+    function hideSaldoAlert() {
+        if (!saldoAlert) {
+            return;
+        }
+
+        saldoAlert.classList.add('d-none');
+        saldoAlert.classList.remove('alert-success', 'alert-danger', 'alert-warning', 'alert-info');
+        saldoAlert.textContent = '';
+    }
+
+    function showSaldoAlert(message, variant) {
+        if (!saldoAlert) {
+            return;
+        }
+
+        const variants = ['alert-success', 'alert-danger', 'alert-warning', 'alert-info'];
+        saldoAlert.classList.remove('d-none');
+        saldoAlert.classList.remove(...variants);
+
+        const tone = variant ? 'alert-' + variant : 'alert-info';
+        saldoAlert.classList.add(tone);
+        saldoAlert.textContent = message;
+    }
+
+    function openSaldoModal(pacienteId, nombre, saldoActual) {
+        if (!saldoForm || !saldoModalElement || !saldoPacienteIdInput || !saldoPacienteNombreInput || !saldoPacienteActualInput || !saldoMontoInput) {
+            return;
+        }
+
+        hideSaldoAlert();
+
+        saldoPacienteIdInput.value = pacienteId || '';
+        saldoPacienteNombreInput.value = nombre || '';
+        saldoPacienteActualInput.value = formatCurrency(saldoActual);
+        saldoMontoInput.value = '';
+
+        if (saldoComentarioInput) {
+            saldoComentarioInput.value = '';
+        }
+
+        if (saldoSubmitButton) {
+            saldoSubmitButton.disabled = false;
+        }
+
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(saldoModalElement);
+        modalInstance.show();
+    }
     function openModal(id, nombre) {
         $.ajax({
             url: 'getpaciente.php',
@@ -357,6 +490,93 @@ include '../Modulos/footer.php';
 
         new bootstrap.Modal(document.getElementById('modalNino')).show();
 
+    }
+    if (saldoForm) {
+        saldoForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+
+            if (!saldoPacienteIdInput || !saldoMontoInput) {
+                return;
+            }
+
+            const pacienteId = Number.parseInt(saldoPacienteIdInput.value, 10);
+            const monto = Number.parseFloat(saldoMontoInput.value);
+            const comentario = saldoComentarioInput ? saldoComentarioInput.value.trim() : '';
+
+            if (!Number.isInteger(pacienteId) || pacienteId <= 0) {
+                showSaldoAlert('No se encontró el identificador del paciente.', 'danger');
+                return;
+            }
+
+            if (!Number.isFinite(monto) || monto <= 0) {
+                showSaldoAlert('Ingresa un monto válido mayor a cero.', 'warning');
+                return;
+            }
+
+            hideSaldoAlert();
+
+            if (saldoSubmitButton) {
+                saldoSubmitButton.disabled = true;
+            }
+
+            fetch('agregarSaldo.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    nino_id: pacienteId,
+                    monto: monto,
+                    comentario: comentario
+                })
+            })
+                .then(function (response) {
+                    if (!response.ok) {
+                        return response.json()
+                            .then(function (payload) {
+                                const message = payload && payload.error ? payload.error : 'No se pudo actualizar el saldo.';
+                                throw new Error(message);
+                            })
+                            .catch(function (error) {
+                                if (error instanceof Error) {
+                                    throw error;
+                                }
+                                throw new Error('No se pudo actualizar el saldo.');
+                            });
+                    }
+
+                    return response.json();
+                })
+                .then(function (payload) {
+                    if (!payload || !payload.success) {
+                        const errorMessage = payload && payload.error ? payload.error : 'No se pudo actualizar el saldo.';
+                        throw new Error(errorMessage);
+                    }
+
+                    showSaldoAlert('Saldo actualizado correctamente.', 'success');
+
+                    if (saldoPacienteActualInput && Object.prototype.hasOwnProperty.call(payload, 'nuevoSaldo')) {
+                        saldoPacienteActualInput.value = formatCurrency(payload.nuevoSaldo);
+                    }
+
+                    const modalInstance = bootstrap.Modal.getInstance(saldoModalElement);
+                    window.setTimeout(function () {
+                        if (modalInstance) {
+                            modalInstance.hide();
+                        }
+                        window.location.reload();
+                    }, 1200);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showSaldoAlert(error.message || 'No se pudo actualizar el saldo.', 'danger');
+                })
+                .finally(function () {
+                    if (saldoSubmitButton) {
+                        saldoSubmitButton.disabled = false;
+                    }
+                });
+        });
     }
     function editUser(id) {
         fetch(`getCliente.php?id=${id}`)
@@ -423,6 +643,7 @@ include '../Modulos/footer.php';
     function filterTable() {
         document.getElementById('filterForm').submit();
     }
+    window.openSaldoModal = openSaldoModal;
     function openModalDatosNino(idTutor) {
         $.ajax({
             url: 'getDatosNino.php',

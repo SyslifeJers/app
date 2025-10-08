@@ -158,6 +158,29 @@ include '../Modulos/head.php';
         border: none;
     }
 
+    .calendar-filter-row .form-label {
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .calendar-availability {
+        background-color: #ffffff;
+        border-radius: 12px;
+        padding: 1rem 1.5rem;
+        box-shadow: 0 18px 35px rgba(15, 23, 42, 0.08);
+    }
+
+    .calendar-availability .list-group-item {
+        border: none;
+        border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+        padding-left: 0;
+        padding-right: 0;
+    }
+
+    .calendar-availability .list-group-item:last-child {
+        border-bottom: none;
+    }
+
     .legend-badge.status-creada,
     .status-pill.status-creada {
         background-color: #dbeafe;
@@ -222,6 +245,33 @@ include '../Modulos/head.php';
         <div class="col-12">
             <div class="card">
                 <div class="card-body calendar-wrapper">
+                    <div class="row g-3 align-items-end mb-4 calendar-filter-row">
+                        <div class="col-md-4 col-sm-6">
+                            <label class="form-label" for="calendar-filter-psychologist">Filtrar por psicóloga</label>
+                            <select id="calendar-filter-psychologist" class="form-select">
+                                <option value="">Todas las psicólogas</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4 col-sm-6">
+                            <label class="form-label" for="available-date">Fecha para consultar disponibilidad</label>
+                            <input type="date" id="available-date" class="form-control">
+                        </div>
+                        <div class="col-md-4 col-sm-12 d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-primary flex-grow-1 flex-sm-grow-0" id="show-available-slots">
+                                Ver horas disponibles
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary flex-grow-1 flex-sm-grow-0" id="clear-calendar-filters">
+                                Limpiar filtros
+                            </button>
+                        </div>
+                    </div>
+                    <div id="available-slots-container" class="calendar-availability mb-4 d-none">
+                        <h6 class="fw-semibold mb-2">Horas disponibles</h6>
+                        <p class="text-muted mb-0" id="available-slots-message">
+                            Selecciona una psicóloga y una fecha para consultar los horarios disponibles.
+                        </p>
+                        <ul class="list-group list-group-flush mt-3 d-none" id="available-slots-list"></ul>
+                    </div>
                     <div id="calendar"></div>
                 </div>
             </div>
@@ -307,6 +357,14 @@ include '../Modulos/head.php';
         let alertTimeoutId = null;
         let selectedEventId = null;
 
+        const psychologistSelect = document.getElementById('calendar-filter-psychologist');
+        const availableDateInput = document.getElementById('available-date');
+        const showAvailableSlotsButton = document.getElementById('show-available-slots');
+        const clearFiltersButton = document.getElementById('clear-calendar-filters');
+        const availableSlotsContainer = document.getElementById('available-slots-container');
+        const availableSlotsMessage = document.getElementById('available-slots-message');
+        const availableSlotsList = document.getElementById('available-slots-list');
+
         function computePsychologistPalette(name) {
             const key = name && name.trim() !== '' ? name.trim() : 'Sin asignar';
             if (psychologistColorCache[key]) {
@@ -357,6 +415,22 @@ include '../Modulos/head.php';
             hour12: false
         });
 
+        const availabilityDateLabelFormatter = new Intl.DateTimeFormat('es-MX', {
+            dateStyle: 'full',
+            timeZone: 'America/Mexico_City'
+        });
+
+        const availabilityDatePartsFormatter = new Intl.DateTimeFormat('en-CA', {
+            timeZone: 'America/Mexico_City',
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+            hour12: false
+        });
+
         function formatTimeRange(startDate, endDate) {
             if (!startDate) {
                 return 'Sin horario';
@@ -370,6 +444,315 @@ include '../Modulos/head.php';
 
             return startTime + ' - ' + timeFormatter.format(endDate);
         }
+
+        function padNumber(value, length) {
+            return String(value).padStart(length, '0');
+        }
+
+        function getMexicoOffsetSuffix(year, monthIndex, day) {
+            const referenceDate = new Date(Date.UTC(year, monthIndex, day, 12, 0, 0));
+            const formatter = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'America/Mexico_City',
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZoneName: 'shortOffset',
+                hour12: false
+            });
+
+            const parts = formatter.formatToParts(referenceDate);
+            const offsetPart = parts.find(function (part) {
+                return part.type === 'timeZoneName';
+            });
+
+            if (!offsetPart) {
+                return '-06:00';
+            }
+
+            const match = offsetPart.value.match(/GMT([+-]?\d{1,2})(?::(\d{2}))?/);
+
+            if (!match) {
+                return '-06:00';
+            }
+
+            const rawHours = Number.parseInt(match[1], 10);
+            if (Number.isNaN(rawHours)) {
+                return '-06:00';
+            }
+
+            const minutes = match[2] ? Number.parseInt(match[2], 10) : 0;
+            const sign = rawHours >= 0 ? '+' : '-';
+            const hoursAbsolute = Math.abs(rawHours);
+
+            return sign + padNumber(hoursAbsolute, 2) + ':' + padNumber(minutes, 2);
+        }
+
+        function buildDateTimeString(year, monthIndex, day, hour, minute, second, offset) {
+            return (
+                padNumber(year, 4) + '-' +
+                padNumber(monthIndex + 1, 2) + '-' +
+                padNumber(day, 2) + 'T' +
+                padNumber(hour, 2) + ':' +
+                padNumber(minute, 2) + ':' +
+                padNumber(second, 2) +
+                offset
+            );
+        }
+
+        function buildDateRangeParams(year, monthIndex, day) {
+            const startOffset = getMexicoOffsetSuffix(year, monthIndex, day);
+            const start = buildDateTimeString(year, monthIndex, day, 0, 0, 0, startOffset);
+
+            const nextDay = new Date(Date.UTC(year, monthIndex, day + 1, 12, 0, 0));
+            const nextYear = nextDay.getUTCFullYear();
+            const nextMonthIndex = nextDay.getUTCMonth();
+            const nextDayNumber = nextDay.getUTCDate();
+            const endOffset = getMexicoOffsetSuffix(nextYear, nextMonthIndex, nextDayNumber);
+            const end = buildDateTimeString(nextYear, nextMonthIndex, nextDayNumber, 0, 0, 0, endOffset);
+
+            return { start: start, end: end };
+        }
+
+        function showAvailabilityMessage(message, tone) {
+            if (!availableSlotsMessage) {
+                return;
+            }
+
+            if (availableSlotsContainer) {
+                availableSlotsContainer.classList.remove('d-none');
+            }
+
+            availableSlotsMessage.textContent = message;
+            availableSlotsMessage.classList.remove('text-success', 'text-danger', 'text-warning', 'text-muted');
+
+            let toneClass = 'text-muted';
+            if (tone === 'success') {
+                toneClass = 'text-success';
+            } else if (tone === 'danger') {
+                toneClass = 'text-danger';
+            } else if (tone === 'warning') {
+                toneClass = 'text-warning';
+            }
+
+            availableSlotsMessage.classList.add(toneClass);
+
+            if (availableSlotsList) {
+                availableSlotsList.innerHTML = '';
+                availableSlotsList.classList.add('d-none');
+            }
+        }
+
+        function resetAvailabilityUI() {
+            if (availableSlotsContainer) {
+                availableSlotsContainer.classList.add('d-none');
+            }
+
+            if (availableSlotsList) {
+                availableSlotsList.innerHTML = '';
+                availableSlotsList.classList.add('d-none');
+            }
+
+            if (availableSlotsMessage) {
+                availableSlotsMessage.textContent = 'Selecciona una psicóloga y una fecha para consultar los horarios disponibles.';
+                availableSlotsMessage.classList.remove('text-success', 'text-danger', 'text-warning');
+                availableSlotsMessage.classList.add('text-muted');
+            }
+        }
+
+        function formatAvailabilitySlot(hour) {
+            const startLabel = padNumber(hour, 2) + ':00';
+            const endLabel = padNumber(hour + 1, 2) + ':00';
+            return startLabel + ' - ' + endLabel + ' hrs';
+        }
+
+        function renderAvailableSlots(slots, dateLabel) {
+            if (!availableSlotsContainer || !availableSlotsList || !availableSlotsMessage) {
+                return;
+            }
+
+            availableSlotsContainer.classList.remove('d-none');
+            availableSlotsList.innerHTML = '';
+            availableSlotsList.classList.remove('d-none');
+
+            slots.forEach(function (slot) {
+                const listItem = document.createElement('li');
+                listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+
+                const label = document.createElement('span');
+                label.textContent = slot.label;
+                listItem.appendChild(label);
+
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-primary rounded-pill';
+                badge.textContent = 'Disponible';
+                listItem.appendChild(badge);
+
+                availableSlotsList.appendChild(listItem);
+            });
+
+            availableSlotsMessage.textContent = 'Horarios disponibles para ' + dateLabel + ':';
+            availableSlotsMessage.classList.remove('text-danger', 'text-warning', 'text-muted');
+            availableSlotsMessage.classList.add('text-success');
+        }
+
+        function loadPsychologists() {
+            if (!psychologistSelect) {
+                return;
+            }
+
+            fetch('../Modulos/getPsicologos.php', { credentials: 'same-origin' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('No se pudo obtener la lista de psicólogas.');
+                    }
+                    return response.json();
+                })
+                .then(function (payload) {
+                    if (!Array.isArray(payload)) {
+                        return;
+                    }
+
+                    const fragment = document.createDocumentFragment();
+
+                    payload.forEach(function (item) {
+                        if (!item || !item.id) {
+                            return;
+                        }
+
+                        const option = document.createElement('option');
+                        option.value = item.id;
+                        option.textContent = item.name || 'Psicóloga sin nombre';
+                        fragment.appendChild(option);
+                    });
+
+                    psychologistSelect.appendChild(fragment);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                });
+        }
+
+        function fetchAvailableSlotsForDay(psicologoId, dateValue) {
+            if (!psicologoId || !dateValue) {
+                return;
+            }
+
+            const parts = dateValue.split('-');
+
+            if (parts.length !== 3) {
+                showAvailabilityMessage('La fecha seleccionada no es válida.', 'danger');
+                return;
+            }
+
+            const year = Number.parseInt(parts[0], 10);
+            const month = Number.parseInt(parts[1], 10);
+            const day = Number.parseInt(parts[2], 10);
+
+            if (Number.isNaN(year) || Number.isNaN(month) || Number.isNaN(day)) {
+                showAvailabilityMessage('La fecha seleccionada no es válida.', 'danger');
+                return;
+            }
+
+            const monthIndex = month - 1;
+            const targetDate = new Date(year, monthIndex, day);
+            const dayOfWeek = targetDate.getDay();
+
+            if (dayOfWeek === 0) {
+                showAvailabilityMessage('El domingo no hay horarios disponibles.', 'warning');
+                return;
+            }
+
+            const schedule = dayOfWeek === 6
+                ? { start: 8, end: 13 }
+                : { start: 13, end: 20 };
+
+            const range = buildDateRangeParams(year, monthIndex, day);
+            const params = new URLSearchParams({
+                start: range.start,
+                end: range.end,
+                psicologo_id: psicologoId
+            });
+
+            showAvailabilityMessage('Consultando disponibilidad...', 'muted');
+
+            fetch('../api/citas_calendario.php?' + params.toString(), { credentials: 'same-origin' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('No se pudo obtener la disponibilidad.');
+                    }
+
+                    return response.json();
+                })
+                .then(function (payload) {
+                    if (!payload || !Array.isArray(payload.data)) {
+                        throw new Error('La respuesta del servidor no es válida.');
+                    }
+
+                    const psychologistIdNumber = Number.parseInt(psicologoId, 10);
+                    const occupiedHours = new Set();
+
+                    payload.data.forEach(function (item) {
+                        if (!item || !item.programado || item.estatus === 'Cancelada') {
+                            return;
+                        }
+
+                        if (Number.isInteger(psychologistIdNumber) && item.psicologo_id && item.psicologo_id !== psychologistIdNumber) {
+                            return;
+                        }
+
+                        const startDate = new Date(item.programado);
+
+                        if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
+                            return;
+                        }
+
+                        const dateParts = availabilityDatePartsFormatter.formatToParts(startDate);
+
+                        const yearPart = dateParts.find(function (part) { return part.type === 'year'; });
+                        const monthPart = dateParts.find(function (part) { return part.type === 'month'; });
+                        const dayPart = dateParts.find(function (part) { return part.type === 'day'; });
+                        const hourPart = dateParts.find(function (part) { return part.type === 'hour'; });
+
+                        if (!yearPart || !monthPart || !dayPart || !hourPart) {
+                            return;
+                        }
+
+                        const eventYear = Number.parseInt(yearPart.value, 10);
+                        const eventMonth = Number.parseInt(monthPart.value, 10);
+                        const eventDay = Number.parseInt(dayPart.value, 10);
+                        const eventHour = Number.parseInt(hourPart.value, 10);
+
+                        if (eventYear === year && eventMonth === month && eventDay === day) {
+                            occupiedHours.add(eventHour);
+                        }
+                    });
+
+                    const slots = [];
+                    for (let hour = schedule.start; hour < schedule.end; hour++) {
+                        if (!occupiedHours.has(hour)) {
+                            slots.push({
+                                hour: hour,
+                                label: formatAvailabilitySlot(hour)
+                            });
+                        }
+                    }
+
+                    const dateLabel = availabilityDateLabelFormatter.format(new Date(Date.UTC(year, monthIndex, day, 12, 0, 0)));
+
+                    if (slots.length === 0) {
+                        showAvailabilityMessage('No hay horarios disponibles para ' + dateLabel + '.', 'warning');
+                        return;
+                    }
+
+                    renderAvailableSlots(slots, dateLabel);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAvailabilityMessage('Ocurrió un error al consultar la disponibilidad. Intenta nuevamente.', 'danger');
+                });
+        }
+
+        loadPsychologists();
+        resetAvailabilityUI();
 
         const detailRow = document.getElementById('detail-row');
         const instructions = document.getElementById('calendar-instructions');
@@ -522,6 +905,10 @@ include '../Modulos/head.php';
                     end: fetchInfo.endStr
                 });
 
+                if (psychologistSelect && psychologistSelect.value) {
+                    params.append('psicologo_id', psychologistSelect.value);
+                }
+
                 fetch('../api/citas_calendario.php?' + params.toString(), {
                     credentials: 'same-origin'
                 })
@@ -580,6 +967,7 @@ include '../Modulos/head.php';
                                     programado: item.programado,
                                     termina: item.termina,
                                     psicologoColor: palette,
+                                    psicologoId: item.psicologo_id || null,
                                     isEditable: isEditable
                                 }
                             };
@@ -729,6 +1117,62 @@ include '../Modulos/head.php';
                     });
             }
         });
+
+        if (psychologistSelect) {
+            psychologistSelect.addEventListener('change', function () {
+                calendar.refetchEvents();
+
+                if (!psychologistSelect.value) {
+                    resetAvailabilityUI();
+                    return;
+                }
+
+                if (availableDateInput && availableDateInput.value) {
+                    fetchAvailableSlotsForDay(psychologistSelect.value, availableDateInput.value);
+                }
+            });
+        }
+
+        if (showAvailableSlotsButton) {
+            showAvailableSlotsButton.addEventListener('click', function () {
+                if (!psychologistSelect || psychologistSelect.value === '') {
+                    showAvailabilityMessage('Selecciona una psicóloga para consultar los horarios disponibles.', 'warning');
+                    return;
+                }
+
+                if (!availableDateInput || availableDateInput.value === '') {
+                    showAvailabilityMessage('Selecciona una fecha para consultar los horarios disponibles.', 'warning');
+                    return;
+                }
+
+                fetchAvailableSlotsForDay(psychologistSelect.value, availableDateInput.value);
+            });
+        }
+
+        if (availableDateInput) {
+            availableDateInput.addEventListener('change', function () {
+                if (psychologistSelect && psychologistSelect.value && availableDateInput.value) {
+                    fetchAvailableSlotsForDay(psychologistSelect.value, availableDateInput.value);
+                } else if (!availableDateInput.value) {
+                    resetAvailabilityUI();
+                }
+            });
+        }
+
+        if (clearFiltersButton) {
+            clearFiltersButton.addEventListener('click', function () {
+                if (psychologistSelect) {
+                    psychologistSelect.value = '';
+                }
+
+                if (availableDateInput) {
+                    availableDateInput.value = '';
+                }
+
+                resetAvailabilityUI();
+                calendar.refetchEvents();
+            });
+        }
 
         calendar.render();
     });

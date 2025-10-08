@@ -50,6 +50,23 @@ $conn = conectar();
 $fechaInicio = normalizarParametro($_GET['start'] ?? null, $timezone, 'start');
 $fechaFin = normalizarParametro($_GET['end'] ?? null, $timezone, 'end');
 
+$psicologoId = null;
+if (array_key_exists('psicologo_id', $_GET)) {
+    $psicologoRaw = trim((string) $_GET['psicologo_id']);
+
+    if ($psicologoRaw !== '') {
+        if (!ctype_digit($psicologoRaw)) {
+            jsonResponse(400, ['error' => 'El parámetro psicologo_id debe ser un número entero positivo.']);
+        }
+
+        $psicologoId = (int) $psicologoRaw;
+
+        if ($psicologoId <= 0) {
+            jsonResponse(400, ['error' => 'El parámetro psicologo_id debe ser mayor que cero.']);
+        }
+    }
+}
+
 $condiciones = [];
 $tipos = '';
 $parametros = [];
@@ -68,11 +85,18 @@ if ($fechaFin !== null) {
 
 $condiciones[] = 'ci.Estatus IN (1, 2, 3, 4)';
 
+if ($psicologoId !== null) {
+    $condiciones[] = 'ci.IdUsuario = ?';
+    $tipos .= 'i';
+    $parametros[] = $psicologoId;
+}
+
 $sql = 'SELECT ci.id,
                ci.Programado,
                ci.Tipo,
                ci.FormaPago,
                ci.costo,
+               ci.IdUsuario AS psicologo_id,
                n.name  AS paciente,
                us.name AS psicologo,
                es.name AS estatus
@@ -118,6 +142,7 @@ while ($fila = $resultado->fetch_assoc()) {
         'id' => (int) $fila['id'],
         'paciente' => $fila['paciente'],
         'psicologo' => $fila['psicologo'],
+        'psicologo_id' => (int) $fila['psicologo_id'],
         'programado' => $inicio->format(DateTime::ATOM),
         'termina' => $fin->format(DateTime::ATOM),
         'estatus' => $fila['estatus'],
