@@ -2,6 +2,20 @@
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 include '../Modulos/head.php';
+
+$rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
+if ($rolUsuario === 2) {
+    http_response_code(403);
+    ?>
+    <div class="container mt-5">
+        <div class="alert alert-warning" role="alert">
+            No tienes permiso para acceder al catálogo de psicólogos.
+        </div>
+    </div>
+    <?php
+    include '../Modulos/footer.php';
+    exit;
+}
 ?>
 
 <div class="container mt-5">

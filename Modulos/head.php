@@ -2,7 +2,9 @@
 <?php
 			ini_set('error_reporting', E_ALL);
 			ini_set('display_errors', 1);
-session_start();
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 header('Content-Type: text/html; charset=utf-8');
 
 if (!isset($_SESSION['user']) || !isset($_SESSION['token'])) {
@@ -27,6 +29,7 @@ if ($_SESSION['token'] !== $db_token) {
     header("Location: https://app.clinicacerene.com/login.php");
     exit();
 }
+$rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
  ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -112,9 +115,11 @@ if ($_SESSION['token'] !== $db_token) {
                  <li class="nav-item ">
         <a class="nav-link" href="/Clientes/index.php"><i class="fas fa-users"></i>Clientes <span class="sr-only"></span></a>
       </li>
-	   <li class="nav-item ">
+      <?php if ($rol !== 2) { ?>
+           <li class="nav-item ">
         <a class="nav-link" href="/Usuarios/index.php"><i class="fas fa-user"></i>Psicologos <span class="sr-only"></span></a>
       </li>
+      <?php } ?>
 
            <li class="nav-item ">
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Citas <span class="sr-only"></span></a>
@@ -122,9 +127,7 @@ if ($_SESSION['token'] !== $db_token) {
            <li class="nav-item ">
         <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
       </li>
-      <?php $rol = isset($_SESSION['rol']) ? $_SESSION['rol'] : 0;
-
-      if ($rol == 3 || $rol == 4) {?>
+      <?php if ($rol == 3 || $rol == 4) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
       </li>
