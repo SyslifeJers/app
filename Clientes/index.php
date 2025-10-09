@@ -19,56 +19,6 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
 
 </div>
 
-<div class="row">
-    <div class="col-sm-6 col-md-3">
-        <div class="card card-stats card-round">
-            <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-icon">
-                        <div class="icon-big text-center icon-primary bubble-shadow-small">
-                            <i class="fas fa-users"></i>
-                        </div>
-                    </div>
-                    <div class="col col-stats ms-3 ms-sm-0">
-                        <div class="numbers">
-                            <form id="filterForm" method="post">
-                                <div class="mb-3">
-                                    <label for="filter" class="form-label">Filtro:</label>
-                                    <select id="filter" name="filter" class="form-select" onchange="filterTable()">
-                                        <option value="all" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'all') ? 'selected' : ''; ?>>Todos</option>
-                                        <option value="active" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'active') ? 'selected' : ''; ?>>Activos</option>
-                                        <option value="inactive" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'inactive') ? 'selected' : ''; ?>>Desactivados</option>
-                                    </select>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-sm-6 col-md-3">
-        <div class="card card-stats card-round">
-            <div class="card-body">
-                <div class="row align-items-center">
-                    <div class="col-icon">
-                        <div class="icon-big text-center icon-info bubble-shadow-small">
-                            <i class="fas fa-user-check"></i>
-                        </div>
-                    </div>
-                    <div class="col col-stats ms-3 ms-sm-0">
-                        <button type="button" class="btn btn-primary" data-bs-toggle="modal"
-                            data-bs-target="#exampleModal">
-                            Registro de Cliente(Papás o tutor)
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-
 <div class="container mt-5">
 
     <div class="card shadow-sm border-0">
@@ -83,10 +33,16 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     </h2>
                     <p class="text-muted mb-0 small">Consulta rápidamente a los tutores, su estado y a los pacientes asignados.</p>
                 </div>
-                <div class="d-flex flex-column flex-sm-row gap-2">
-                    <form id="filterForm" method="post" class="d-flex">
+                <div class="d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-2">
+                    <button type="button"
+                        class="btn btn-primary d-flex align-items-center justify-content-center gap-2 w-100 w-lg-auto"
+                        data-bs-toggle="modal" data-bs-target="#exampleModal">
+                        <i class="fas fa-user-plus"></i>
+                        <span>Registrar tutor</span>
+                    </button>
+                    <form id="filterForm" method="post" class="d-flex w-100 w-lg-auto">
                         <label class="visually-hidden" for="filter">Filtrar por estado</label>
-                        <div class="input-group">
+                        <div class="input-group flex-fill">
                             <span class="input-group-text"><i class="fas fa-filter"></i></span>
                             <select id="filter" name="filter" class="form-select" onchange="filterTable()">
                                 <option value="all" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'all') ? 'selected' : ''; ?>>Todos</option>
@@ -95,7 +51,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                             </select>
                         </div>
                     </form>
-                    <div class="input-group">
+                    <div class="input-group flex-fill">
                         <span class="input-group-text"><i class="fas fa-search"></i></span>
                         <input type="search" id="searchInput" class="form-control" placeholder="Buscar por nombre o teléfono">
                     </div>
@@ -150,7 +106,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     $sql .= " HAVING COUNT(n.`id`) > 0";
                 }
 
-                $sql .= " ORDER BY c.`id` DESC";
+                $sql .= " ORDER BY c.`activo` DESC, c.`id` DESC";
 
                 $result = $conn->query($sql);
 
