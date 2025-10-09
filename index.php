@@ -157,7 +157,7 @@ ORDER BY ci.Programado ASC;";
 
               if ($formaPagoRegistrada !== '') {
                 $botones[] = '<span class="badge bg-success">Pago registrado</span>';
-                if ($estatusActual !== 'finalizada' && $rolUsuario != 1) {
+                if ($estatusActual !== 'finalizada' ) {
                   $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
                 }
               } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
