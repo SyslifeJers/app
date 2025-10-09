@@ -71,22 +71,51 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
 
 <div class="container mt-5">
 
-    <h2 class="mb-4">Lista de Clientes(Papás o tutor)</h2>
-    <div class="table-responsive">
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 py-4">
+            <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-lg-between gap-3">
+                <div>
+                    <h2 class="h4 mb-1 d-flex align-items-center gap-2">
+                        <span class="badge bg-primary-subtle text-primary-emphasis rounded-circle p-2">
+                            <i class="fas fa-user-friends"></i>
+                        </span>
+                        Lista de Clientes (Papás o tutores)
+                    </h2>
+                    <p class="text-muted mb-0 small">Consulta rápidamente a los tutores, su estado y a los pacientes asignados.</p>
+                </div>
+                <div class="d-flex flex-column flex-sm-row gap-2">
+                    <form id="filterForm" method="post" class="d-flex">
+                        <label class="visually-hidden" for="filter">Filtrar por estado</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-filter"></i></span>
+                            <select id="filter" name="filter" class="form-select" onchange="filterTable()">
+                                <option value="all" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'all') ? 'selected' : ''; ?>>Todos</option>
+                                <option value="active" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'active') ? 'selected' : ''; ?>>Activos</option>
+                                <option value="inactive" <?php echo (isset($_POST['filter']) && $_POST['filter'] == 'inactive') ? 'selected' : ''; ?>>Desactivados</option>
+                            </select>
+                        </div>
+                    </form>
+                    <div class="input-group">
+                        <span class="input-group-text"><i class="fas fa-search"></i></span>
+                        <input type="search" id="searchInput" class="form-control" placeholder="Buscar por nombre o teléfono">
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
 
-        <table class="table table-bordered" id="myTable">
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Nombre</th>
-                    <th>Pacientes</th>
-                    <th>Activo</th>
-                    <th>Registro</th>
-                    <th>Teléfono</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
+            <table class="table table-hover align-middle mb-0" id="myTable">
+                <thead class="table-light">
+                    <tr>
+                        <th class="text-uppercase small text-muted">ID</th>
+                        <th class="text-uppercase small text-muted">Nombre</th>
+                        <th class="text-uppercase small text-muted">Pacientes</th>
+                        <th class="text-uppercase small text-muted">Registro</th>
+                        <th class="text-uppercase small text-muted">Teléfono</th>
+                        <th class="text-uppercase small text-muted">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
                 <?php
                 $sql = "SELECT c.`id`,
                                    c.`name`,
@@ -126,13 +155,19 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                 $result = $conn->query($sql);
 
                 if ($result === false) {
-                    echo '<tr><td colspan="7" class="text-center text-danger">No se pudo obtener la lista de clientes.</td></tr>';
+                    echo '<tr><td colspan="6" class="text-center text-danger">No se pudo obtener la lista de clientes.</td></tr>';
                 } else {
                     while ($row = $result->fetch_assoc()) {
-                    $acti = $row["activo"] == 1 ? 'Sí' : 'No';
-                    echo '<tr>';
-                    echo '<td>' . htmlspecialchars($row['id']) . '</td>';
-                    echo '<td>' . htmlspecialchars($row['name']) . '</td>';
+
+                    $rowStateClass = $row['activo'] == 1 ? 'bg-success-subtle' : 'bg-secondary-subtle';
+                    echo '<tr class="' . $rowStateClass . '" data-search-text="' . htmlspecialchars(strtolower($row['name'] . ' ' . $row['telefono']), ENT_QUOTES, 'UTF-8') . '">';
+                    echo '<td class="fw-semibold">#' . htmlspecialchars($row['id']) . '</td>';
+                    echo '<td>';
+                    echo '<div class="d-flex flex-column">';
+                    echo '<span class="fw-semibold">' . htmlspecialchars($row['name']) . '</span>';
+                    echo '<span class="text-muted small">Tutor ID: ' . htmlspecialchars($row['id']) . '</span>';
+                    echo '</div>';
+                    echo '</td>';
                     echo '<td>';
                     if ($row['Pacientes'] !== null) {
                         $pacientes = explode('||', (string) $row['Pacientes']);
@@ -151,13 +186,24 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
 
                             $pacienteNombreHtml = htmlspecialchars($pacienteNombre, ENT_QUOTES, 'UTF-8');
                             $pacienteSaldoHtml = '$' . number_format($pacienteSaldo, 2);
-
-                            echo '<div class="mb-3">';
-                            echo '<div class="fw-semibold">' . $pacienteNombreHtml . '</div>';
-                            echo '<div class="text-muted small">Saldo: ' . $pacienteSaldoHtml . '</div>';
-                            echo '<div class="d-flex flex-wrap gap-3 mt-2">';
                             $pacienteNombreAttr = htmlspecialchars($pacienteNombre, ENT_QUOTES, 'UTF-8');
                             $pacienteSaldoAttr = htmlspecialchars((string) $pacienteSaldo, ENT_QUOTES, 'UTF-8');
+
+                            echo '<div class="mb-3">';
+                            echo '<div class="d-flex flex-column gap-2">';
+                            echo '<a href="#" class="child-detail-trigger text-decoration-none fw-semibold d-inline-flex align-items-center gap-2"'
+                                . ' data-tutor-id="' . (int) $row['id'] . '"'
+                                . ' data-nino-id="' . $pacienteId . '"'
+                                . ' data-paciente-nombre="' . $pacienteNombreAttr . '"'
+                                . ' data-paciente-saldo="' . $pacienteSaldoAttr . '"'
+                                . ' data-tutor-nombre="' . htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') . '"'
+                                . ' onclick="openModalDatosNino(this); return false;">'
+                                . '<i class="fas fa-child text-info"></i>'
+                                . '<span>' . $pacienteNombreHtml . '</span>'
+                                . '</a>';
+                            echo '<span class="badge align-self-start bg-secondary-subtle text-secondary-emphasis"><i class="fas fa-wallet me-1"></i>' . $pacienteSaldoHtml . '</span>';
+                            echo '</div>';
+                            echo '<div class="d-flex flex-wrap gap-3 mt-2">';
 
                             echo '<a href="#" class="link-primary text-decoration-none"'
                                 . ' data-tutor-id="' . (int) $row['id'] . '"'
@@ -179,25 +225,40 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                             }
                         }
 
-                        echo '<hr><button class="btn btn-info btn-sm" onclick="openModalDatosNino(' . (int) $row['id'] . ')">Ver detalle</button>';
+                    }
+                    else {
+                        echo '<span class="text-muted small">Sin pacientes registrados.</span>';
                     }
                     echo '</td>';
 
-                    echo '<td>' . htmlspecialchars($acti) . '</td>';
-                    echo '<td>' . htmlspecialchars($row['Registro']) . '</td>';
-                    echo '<td>' . htmlspecialchars($row['telefono']) . '</td>';
+                    $fechaRegistro = '';
+                    if (!empty($row['Registro'])) {
+                        $registroFecha = new DateTime($row['Registro']);
+                        $fechaRegistro = $registroFecha->format('d/m/Y');
+                    }
+                    echo '<td>' . htmlspecialchars($fechaRegistro) . '</td>';
+
+                    $telefono = !empty($row['telefono']) ? $row['telefono'] : 'Sin registrar';
                     echo '<td>';
-                    echo '<button class="btn btn-primary btn-sm" onclick="editUser(' . $row['id'] . ')">Editar</button>';
+                    echo '<div class="d-flex flex-column">';
+                    echo '<span class="fw-semibold">' . htmlspecialchars($telefono) . '</span>';
+                    echo '<span class="text-muted small"><i class="fas fa-phone me-1"></i>Contacto</span>';
+                    echo '</div>';
+                    echo '</td>';
+                    echo '<td class="text-nowrap">';
+                    echo '<div class="btn-group" role="group" aria-label="Acciones">';
+                    echo '<button class="btn btn-outline-primary btn-sm" onclick="editUser(' . $row['id'] . ')"><i class="fas fa-edit me-1"></i>Editar</button>';
 
                     if ($puedeGestionarActivaciones) {
                         if ($row["activo"] == 1) {
-                            echo ' - <button class="btn btn-danger btn-sm" onclick="deactivateUser(' . $row['id'] . ')">Desactivar</button>';
+                            echo '<button class="btn btn-outline-danger btn-sm" onclick="deactivateUser(' . $row['id'] . ')"><i class="fas fa-user-slash me-1"></i>Desactivar</button>';
                         } else {
-                            echo ' - <button class="btn btn-success btn-sm" onclick="deactivateUser(' . $row['id'] . ')">Activar</button>';
+                            echo '<button class="btn btn-outline-success btn-sm" onclick="deactivateUser(' . $row['id'] . ')"><i class="fas fa-user-check me-1"></i>Activar</button>';
                         }
                     }
 
-                    echo ' - <button class="btn btn-info btn-sm" onclick="agregarUser(' . $row['id'] . ')">Agregar niño</button>';
+                    echo '<button class="btn btn-outline-info btn-sm" onclick="agregarUser(' . $row['id'] . ')"><i class="fas fa-child me-1"></i>Agregar niño</button>';
+                    echo '</div>';
                     echo '</td>';
                     echo '</tr>';
                 }
@@ -205,41 +266,58 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                 }
                 $conn->close();
                 ?>
-            </tbody>
-        </table>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer bg-white border-0 text-muted small d-flex justify-content-between flex-column flex-sm-row gap-2">
+            <div><i class="fas fa-info-circle me-1"></i> Usa el filtro o la búsqueda para localizar un tutor específico.</div>
+            <div id="resultCount"></div>
+        </div>
     </div>
 </div>
 <div class="modal fade" id="DatosNino" tabindex="-1" aria-labelledby="DatosNinoLabel" aria-hidden="true">
-    <div class="modal-dialog" role="document">
+    <div class="modal-dialog modal-dialog-centered" role="document">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title" id="DatosNinoLabel">Datos de los Niños</h5>
-                <button type="button" data-bs-dismiss="modal" aria-label="Close">
-                    <span aria-hidden="true">&times;</span>
-                </button>
+                <div>
+                    <h5 class="modal-title" id="DatosNinoLabel">Detalle del paciente</h5>
+                    <small class="text-muted" id="DatosNinoSubtitulo">Consulta y administra la información del menor.</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>Nombre</th>
-                                <th>Activo</th>
-                                <th>Edad</th>
-                                <th>Observación</th>
-                                <th>Fecha de Ingreso</th>
-                            </tr>
-                        </thead>
-                        <tbody id="modalTableBody">
-                            <!-- Los datos se llenarán dinámicamente aquí -->
-                        </tbody>
-                    </table>
+                <div id="detalleNinoContenido" class="d-flex flex-column gap-3">
+                    <div id="detalleNinoAlert" class="alert alert-warning d-none" role="alert"></div>
+                    <dl class="row mb-0">
+                        <dt class="col-sm-4 text-muted small">Nombre</dt>
+                        <dd class="col-sm-8 fw-semibold" id="detalleNinoNombre">-</dd>
+                        <dt class="col-sm-4 text-muted small">Tutor</dt>
+                        <dd class="col-sm-8" id="detalleNinoTutor">-</dd>
+                        <dt class="col-sm-4 text-muted small">Estado</dt>
+                        <dd class="col-sm-8" id="detalleNinoEstado">-</dd>
+                        <dt class="col-sm-4 text-muted small">Edad</dt>
+                        <dd class="col-sm-8" id="detalleNinoEdad">-</dd>
+                        <dt class="col-sm-4 text-muted small">Fecha de ingreso</dt>
+                        <dd class="col-sm-8" id="detalleNinoFecha">-</dd>
+                        <dt class="col-sm-4 text-muted small">Saldo</dt>
+                        <dd class="col-sm-8" id="detalleNinoSaldo">-</dd>
+                        <dt class="col-sm-4 text-muted small">Observaciones</dt>
+                        <dd class="col-sm-8" id="detalleNinoObservaciones">-</dd>
+                    </dl>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-
+            <div class="modal-footer flex-column flex-sm-row gap-2">
+                <button type="button" class="btn btn-secondary w-100 w-sm-auto" data-bs-dismiss="modal">Cerrar</button>
+                <div class="d-flex gap-2 w-100 w-sm-auto">
+                    <button type="button" class="btn btn-outline-primary flex-fill" id="detalleEditarBtn">
+                        <i class="fas fa-edit me-1"></i>Editar
+                    </button>
+                    <?php if ($puedeGestionarActivaciones): ?>
+                        <button type="button" class="btn btn-outline-success flex-fill" id="detalleSaldoBtn">
+                            <i class="fas fa-wallet me-1"></i>Agregar saldo
+                        </button>
+                    <?php endif; ?>
+                </div>
             </div>
         </div>
     </div>
@@ -274,42 +352,79 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
     </div>
 </div>
 
-<div class="modal fade" id="modalNino" tabindex="-1" aria-labelledby="modalNino" aria-hidden="true">
-    <div class="modal-dialog">
-        <div class="modal-content">
-            <form id="registerForm" action="agregarNino.php" method="POST">
-                <div class="modal-header">
-                    <h2>Agregar</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+<div class="modal fade" id="modalNino" tabindex="-1" aria-labelledby="modalNinoLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content shadow-lg border-0">
+            <form id="registerForm" action="agregarNino.php" method="POST" class="child-register-form needs-validation" novalidate>
+                <div class="modal-header bg-primary text-white">
+                    <div class="d-flex align-items-center">
+                        <div class="rounded-circle bg-white text-primary d-flex align-items-center justify-content-center me-3"
+                            style="width: 48px; height: 48px;">
+                            <i class="fas fa-child fa-lg"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title mb-0" id="modalNinoLabel">Agregar paciente infantil</h5>
+                            <small class="text-white-50">Completa la información para registrar a un nuevo niño.</small>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"
+                        aria-label="Close"></button>
                 </div>
-                <div class="modal-body">
+                <div class="modal-body bg-light">
+                    <input type="text" value="0" class="form-control" id="idTutor" name="idTutor" hidden>
 
+                    <div class="mb-3">
+                        <label for="name" class="form-label fw-semibold">Nombre*</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-signature"></i></span>
+                            <input type="text" class="form-control" id="name" name="name" placeholder="Nombre completo"
+                                required>
+                            <div class="invalid-feedback">Por favor, ingresa el nombre del niño.</div>
+                        </div>
+                    </div>
 
-                    <div class="mb-3">
-                        <input type="text" value="0" class="form-control" id="idTutor" name="idTutor" hidden>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label for="edad" class="form-label fw-semibold">Edad*</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="fas fa-birthday-cake"></i></span>
+                                <input type="number" min="1" max="100" class="form-control" id="edad" name="edad"
+                                    placeholder="Edad en años" required>
+                                <div class="invalid-feedback">La edad debe estar entre 1 y 100 años.</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="FechaIngreso" class="form-label fw-semibold">Fecha ingreso*</label>
+                            <div class="input-group">
+                                <span class="input-group-text"><i class="far fa-calendar-alt"></i></span>
+                                <input type="date" class="form-control" id="FechaIngreso" name="FechaIngreso" required>
+                                <div class="invalid-feedback">Selecciona la fecha de ingreso.</div>
+                            </div>
+                        </div>
                     </div>
-                    <div class="mb-3">
-                        <label for="name" class="form-label">Nombre*</label>
-                        <input type="text" class="form-control" id="name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="edad" class="form-label">Edad*</label>
-                        <input type="number" min="1" max="100" class="form-control" id="edad" name="edad" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="FechaIngreso" class="form-label">Fecha ingreso*</label>
-                        <input type="date" class="form-control" id="FechaIngreso" name="FechaIngreso" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="Observaciones" class="form-label">Observaciones</label>
-                        <input type="text" class="form-control" id="Observaciones" name="Observaciones">
+
+                    <div class="mt-3">
+                        <label for="Observaciones" class="form-label fw-semibold">Observaciones</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="fas fa-comment-dots"></i></span>
+                            <textarea class="form-control" id="Observaciones" name="Observaciones" rows="3"
+                                placeholder="Información adicional opcional"></textarea>
+                        </div>
                     </div>
                 </div>
-                <div class="modal-footer">
-                    <button type="submit" class="btn btn-primary">Agregar</button>
-
-                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
-
+                <div class="modal-footer bg-light border-0 d-flex justify-content-between">
+                    <div class="text-muted small d-flex align-items-center">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <span>Los campos marcados con * son obligatorios.</span>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">
+                            <i class="fas fa-times me-1"></i>Cerrar
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save me-1"></i>Agregar
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -480,6 +595,8 @@ include '../Modulos/footer.php';
 ?>
 
 <script>editModalpacien
+    const modalNinoElement = document.getElementById('modalNino');
+    const modalNinoForm = modalNinoElement ? modalNinoElement.querySelector('.child-register-form') : null;
     const saldoModalElement = document.getElementById('modalSaldo');
     const saldoForm = document.getElementById('saldoForm');
     const saldoAlert = document.getElementById('saldoAlert');
@@ -494,6 +611,24 @@ include '../Modulos/footer.php';
     function formatCurrency(value) {
         const numericValue = Number.parseFloat(value);
         return formatoMoneda.format(Number.isFinite(numericValue) ? numericValue : 0);
+    }
+
+    if (modalNinoForm) {
+        modalNinoForm.addEventListener('submit', function (event) {
+            if (!modalNinoForm.checkValidity()) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+
+            modalNinoForm.classList.add('was-validated');
+        });
+
+        if (modalNinoElement) {
+            modalNinoElement.addEventListener('hidden.bs.modal', function () {
+                modalNinoForm.classList.remove('was-validated');
+                modalNinoForm.reset();
+            });
+        }
     }
 
     function hideSaldoAlert() {
@@ -750,52 +885,296 @@ include '../Modulos/footer.php';
             });
     });
     $(document).ready(function () {
-        $('#myTable').DataTable({
+        const table = $('#myTable').DataTable({
             language: {
                 lengthMenu: 'Número de filas _MENU_',
-                zeroRecords: 'No encontró nada, usa los filtros para pulir la busqueda',
+                zeroRecords: 'No encontró nada, usa los filtros para pulir la búsqueda',
                 info: 'Página _PAGE_ de _PAGES_',
                 search: 'Buscar:',
                 paginate: {
                     first: 'Primero',
-                    last: 'Ultimo',
+                    last: 'Último',
                     next: 'Siguiente',
                     previous: 'Previo'
                 },
                 infoEmpty: 'No hay registros disponibles',
                 infoFiltered: '(Buscamos en _MAX_ resultados)',
             },
+            dom: 'tip',
+            ordering: false
         });
+
+        const searchInput = document.getElementById('searchInput');
+        const resultCount = document.getElementById('resultCount');
+
+        function updateResultCount() {
+            if (!resultCount) {
+                return;
+            }
+            const info = table.page.info();
+            const total = info.recordsTotal || 0;
+            const visibles = info.recordsDisplay || 0;
+            const label = visibles === total
+                ? `Mostrando ${visibles} ${visibles === 1 ? 'cliente' : 'clientes'}`
+                : `Mostrando ${visibles} de ${total} clientes`;
+            resultCount.textContent = label;
+        }
+
+        if (searchInput) {
+            searchInput.addEventListener('input', function () {
+                table.search(this.value).draw();
+            });
+        }
+
+        table.on('draw', updateResultCount);
+        updateResultCount();
     });
     function filterTable() {
         document.getElementById('filterForm').submit();
     }
     window.openModal = openModal;
     window.openSaldoModal = openSaldoModal;
-    function openModalDatosNino(idTutor) {
+    const detalleModalElement = document.getElementById('DatosNino');
+    const detalleNombre = document.getElementById('detalleNinoNombre');
+    const detalleTutor = document.getElementById('detalleNinoTutor');
+    const detalleEstado = document.getElementById('detalleNinoEstado');
+    const detalleEdad = document.getElementById('detalleNinoEdad');
+    const detalleFecha = document.getElementById('detalleNinoFecha');
+    const detalleSaldo = document.getElementById('detalleNinoSaldo');
+    const detalleObservaciones = document.getElementById('detalleNinoObservaciones');
+    const detalleAlert = document.getElementById('detalleNinoAlert');
+    const detalleEditarBtn = document.getElementById('detalleEditarBtn');
+    const detalleSaldoBtn = document.getElementById('detalleSaldoBtn');
+
+    function resetDetalleNino() {
+        if (detalleNombre) { detalleNombre.textContent = '-'; }
+        if (detalleTutor) { detalleTutor.textContent = '-'; }
+        if (detalleEstado) { detalleEstado.textContent = '-'; }
+        if (detalleEdad) { detalleEdad.textContent = '-'; }
+        if (detalleFecha) { detalleFecha.textContent = '-'; }
+        if (detalleSaldo) { detalleSaldo.textContent = '-'; }
+        if (detalleObservaciones) { detalleObservaciones.textContent = '-'; }
+        if (detalleEditarBtn) {
+            detalleEditarBtn.disabled = true;
+            detalleEditarBtn.onclick = null;
+        }
+        if (detalleSaldoBtn) {
+            detalleSaldoBtn.disabled = true;
+            detalleSaldoBtn.onclick = null;
+        }
+    }
+
+    function hideDetalleAlert() {
+        if (!detalleAlert) {
+            return;
+        }
+        detalleAlert.classList.add('d-none');
+        detalleAlert.textContent = '';
+    }
+
+    function showDetalleAlert(message) {
+        if (!detalleAlert) {
+            return;
+        }
+        detalleAlert.classList.remove('d-none');
+        detalleAlert.textContent = message;
+    }
+
+    function encontrarDetalleNino(datos, ninoId, pacienteNombre) {
+        if (!Array.isArray(datos) || datos.length === 0) {
+            return null;
+        }
+
+        if (Number.isInteger(ninoId) && ninoId > 0) {
+            const porId = datos.find(function (item) {
+                return Number.parseInt(item.id, 10) === ninoId;
+            });
+            if (porId) {
+                return porId;
+            }
+        }
+
+        if (pacienteNombre) {
+            const porNombre = datos.find(function (item) {
+                return (item.name || '').toLowerCase() === pacienteNombre.toLowerCase();
+            });
+            if (porNombre) {
+                return porNombre;
+            }
+        }
+
+        return datos[0];
+    }
+
+    function openModalDatosNino(origen) {
+        let tutorId = origen;
+        let ninoId = null;
+        let pacienteNombre = '';
+        let pacienteSaldo = '';
+        let tutorNombre = '';
+
+        if (origen && typeof origen === 'object' && 'dataset' in origen) {
+            const dataset = origen.dataset;
+            if (dataset.tutorId) {
+                const parsedTutor = Number.parseInt(dataset.tutorId, 10);
+                tutorId = Number.isNaN(parsedTutor) ? dataset.tutorId : parsedTutor;
+            }
+            if (dataset.ninoId) {
+                const parsedNino = Number.parseInt(dataset.ninoId, 10);
+                ninoId = Number.isNaN(parsedNino) ? null : parsedNino;
+            }
+            if (dataset.pacienteNombre) {
+                pacienteNombre = dataset.pacienteNombre;
+            }
+            if (dataset.pacienteSaldo) {
+                pacienteSaldo = dataset.pacienteSaldo;
+            }
+            if (dataset.tutorNombre) {
+                tutorNombre = dataset.tutorNombre;
+            }
+        }
+
+        if (typeof tutorId === 'string') {
+            const parsed = Number.parseInt(tutorId, 10);
+            tutorId = Number.isNaN(parsed) ? 0 : parsed;
+        }
+
+        resetDetalleNino();
+        hideDetalleAlert();
+
+        if (!Number.isInteger(tutorId) || tutorId <= 0) {
+            showDetalleAlert('No se pudo identificar al tutor del paciente.');
+            if (detalleModalElement) {
+                bootstrap.Modal.getOrCreateInstance(detalleModalElement).show();
+            }
+            return;
+        }
+
         $.ajax({
             url: 'getDatosNino.php',
             type: 'GET',
-            data: { idTutor: idTutor },
+            data: { idTutor: tutorId },
             success: function (data) {
-                var datos = JSON.parse(data);
-                var modalTableBody = $('#modalTableBody');
-                modalTableBody.empty(); // Limpiar cualquier dato anterior
-                datos.forEach(function (nino) {
-                    var row = '<tr>' +
-                        '<td>' + nino.id + '</td>' +
-                        '<td>' + nino.name + '</td>' +
-                        '<td>' + (nino.activo == 1 ? 'Sí' : 'No') + '</td>' +
-                        '<td>' + nino.edad + '</td>' +
-                        '<td>' + nino.Observacion + '</td>' +
-                        '<td>' + nino.FechaIngreso + '</td>' +
-                        '</tr>';
-                    modalTableBody.append(row);
-                });
-                $('#DatosNino').modal('show');
+                let datos = [];
+                if (Array.isArray(data)) {
+                    datos = data;
+                } else {
+                    try {
+                        datos = JSON.parse(data);
+                    } catch (error) {
+                        datos = [];
+                    }
+                }
+
+                if (!Array.isArray(datos) || datos.length === 0) {
+                    showDetalleAlert('No se encontró información para el paciente seleccionado.');
+                }
+
+                const detalle = encontrarDetalleNino(datos, ninoId, pacienteNombre);
+
+                const nombreDetalle = detalle && detalle.name ? detalle.name : pacienteNombre;
+                if (detalleNombre) {
+                    detalleNombre.textContent = nombreDetalle || 'Sin nombre';
+                }
+
+                if (detalleTutor) {
+                    detalleTutor.textContent = tutorNombre || ('Tutor #' + tutorId);
+                }
+
+                if (detalleEstado) {
+                    const estado = detalle && Object.prototype.hasOwnProperty.call(detalle, 'activo')
+                        ? (Number.parseInt(detalle.activo, 10) === 1 ? 'Activo' : 'Desactivado')
+                        : 'Sin registro';
+                    detalleEstado.textContent = estado;
+                }
+
+                if (detalleEdad) {
+                    const edad = detalle && Object.prototype.hasOwnProperty.call(detalle, 'edad') ? detalle.edad : '';
+                    detalleEdad.textContent = edad ? edad + ' años' : 'Sin registrar';
+                }
+
+                if (detalleFecha) {
+                    const fecha = detalle && Object.prototype.hasOwnProperty.call(detalle, 'FechaIngreso')
+                        ? detalle.FechaIngreso
+                        : '';
+                    detalleFecha.textContent = fecha ? fecha : 'Sin registrar';
+                }
+
+                const saldoNumerico = (function () {
+                    if (pacienteSaldo !== '') {
+                        const saldoDesdeDataset = Number.parseFloat(pacienteSaldo);
+                        if (!Number.isNaN(saldoDesdeDataset)) {
+                            return saldoDesdeDataset;
+                        }
+                    }
+                    if (detalle && Object.prototype.hasOwnProperty.call(detalle, 'saldo_paquete')) {
+                        const saldoDetalle = Number.parseFloat(detalle.saldo_paquete);
+                        if (!Number.isNaN(saldoDetalle)) {
+                            return saldoDetalle;
+                        }
+                    }
+                    return 0;
+                }());
+
+                if (detalleSaldo) {
+                    detalleSaldo.textContent = formatCurrency(saldoNumerico);
+                }
+
+                if (detalleObservaciones) {
+                    const observaciones = detalle && Object.prototype.hasOwnProperty.call(detalle, 'Observacion')
+                        ? detalle.Observacion
+                        : '';
+                    detalleObservaciones.textContent = observaciones ? observaciones : 'Sin observaciones registradas.';
+                }
+
+                const nombreParaAcciones = nombreDetalle || pacienteNombre;
+                const idParaAcciones = detalle && Object.prototype.hasOwnProperty.call(detalle, 'id')
+                    ? Number.parseInt(detalle.id, 10)
+                    : (Number.isInteger(ninoId) ? ninoId : 0);
+
+                if (detalleEditarBtn) {
+                    detalleEditarBtn.disabled = !nombreParaAcciones;
+                    if (nombreParaAcciones) {
+                        detalleEditarBtn.onclick = function () {
+                            openModal({
+                                dataset: {
+                                    tutorId: tutorId,
+                                    pacienteNombre: nombreParaAcciones
+                                }
+                            });
+                        };
+                    }
+                }
+
+                if (detalleSaldoBtn) {
+                    detalleSaldoBtn.disabled = !nombreParaAcciones || !idParaAcciones;
+                    if (!detalleSaldoBtn.disabled) {
+                        detalleSaldoBtn.onclick = function () {
+                            openSaldoModal({
+                                dataset: {
+                                    pacienteId: idParaAcciones,
+                                    pacienteNombre: nombreParaAcciones,
+                                    pacienteSaldo: saldoNumerico
+                                }
+                            });
+                        };
+                    }
+                }
+
+                if (detalleModalElement) {
+                    bootstrap.Modal.getOrCreateInstance(detalleModalElement).show();
+                }
+            },
+            error: function () {
+                showDetalleAlert('Ocurrió un error al obtener la información del paciente.');
+                if (detalleModalElement) {
+                    bootstrap.Modal.getOrCreateInstance(detalleModalElement).show();
+                }
             }
         });
     }
+
+    window.openModalDatosNino = openModalDatosNino;
 
     function htmlspecialchars(str) {
         if (str === null || str === undefined) {
