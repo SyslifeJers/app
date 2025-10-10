@@ -66,7 +66,6 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                         <th class="text-uppercase small text-muted">ID</th>
                         <th class="text-uppercase small text-muted">Nombre</th>
                         <th class="text-uppercase small text-muted">Pacientes</th>
-                        <th class="text-uppercase small text-muted">Registro</th>
                         <th class="text-uppercase small text-muted">Teléfono</th>
                         <th class="text-uppercase small text-muted">Acciones</th>
                     </tr>
@@ -114,7 +113,11 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     echo '<tr><td colspan="6" class="text-center text-danger">No se pudo obtener la lista de clientes.</td></tr>';
                 } else {
                     while ($row = $result->fetch_assoc()) {
-
+                    $fechaRegistro = '';
+                    if (!empty($row['Registro'])) {
+                        $registroFecha = new DateTime($row['Registro']);
+                        $fechaRegistro = $registroFecha->format('d/m/Y');
+                    }
                     $rowStateClass = $row['activo'] == 1 ? 'bg-success-subtle' : 'bg-secondary-subtle';
                     echo '<tr class="' . $rowStateClass . '" data-search-text="' . htmlspecialchars(strtolower($row['name'] . ' ' . $row['telefono']), ENT_QUOTES, 'UTF-8') . '">';
                     echo '<td class="fw-semibold">#' . htmlspecialchars($row['id']) . '</td>';
@@ -122,6 +125,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     echo '<div class="d-flex flex-column">';
                     echo '<span class="fw-semibold">' . htmlspecialchars($row['name']) . '</span>';
                     echo '<span class="text-muted small">Tutor ID: ' . htmlspecialchars($row['id']) . '</span>';
+                    echo '<span class="text-muted small">Fecha de Registro: ' . $fechaRegistro . '</span>';
                     echo '</div>';
                     echo '</td>';
                     echo '<td>';
@@ -160,19 +164,6 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                             echo '<span class="badge align-self-start bg-secondary-subtle text-secondary-emphasis"><i class="fas fa-wallet me-1"></i>' . $pacienteSaldoHtml . '</span>';
                             echo '</div>';
                             echo '<div class="d-flex flex-wrap gap-3 mt-2">';
-
-                            echo '<a href="#" class="link-primary text-decoration-none"'
-                                . ' data-tutor-id="' . (int) $row['id'] . '"'
-                                . ' data-paciente-nombre="' . $pacienteNombreAttr . '"'
-                                . ' onclick="openModal(this); return false;">Editar</a>';
-
-                            if ($puedeGestionarActivaciones) {
-                                echo '<a href="#" class="text-success text-decoration-none"'
-                                    . ' data-paciente-id="' . $pacienteId . '"'
-                                    . ' data-paciente-nombre="' . $pacienteNombreAttr . '"'
-                                    . ' data-paciente-saldo="' . $pacienteSaldoAttr . '"'
-                                    . ' onclick="openSaldoModal(this); return false;">Agregar saldo</a>';
-                            }
                             echo '</div>';
                             echo '</div>';
 
@@ -186,14 +177,6 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                         echo '<span class="text-muted small">Sin pacientes registrados.</span>';
                     }
                     echo '</td>';
-
-                    $fechaRegistro = '';
-                    if (!empty($row['Registro'])) {
-                        $registroFecha = new DateTime($row['Registro']);
-                        $fechaRegistro = $registroFecha->format('d/m/Y');
-                    }
-                    echo '<td>' . htmlspecialchars($fechaRegistro) . '</td>';
-
                     $telefono = !empty($row['telefono']) ? $row['telefono'] : 'Sin registrar';
                     echo '<td>';
                     echo '<div class="d-flex flex-column">';
