@@ -158,7 +158,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     <h3 class="text-center">Login</h3>
                 </div>
                 <div class="card-body">
-                    <form action="login.php" method="post">
+                    <form action="login.php" method="post" novalidate>
                         <div class="mb-3">
                             <label for="user" class="form-label">Username</label>
                             <input type="text" id="user" name="user" class="form-control" required>
@@ -167,9 +167,16 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                             <label for="pass" class="form-label">Password</label>
                             <input type="password" id="pass" name="pass" class="form-control" required>
                         </div>
-						<label><?php echo $message; ?>
+                        <?php if (!empty($message)) : ?>
+                            <div class="alert alert-<?php echo htmlspecialchars($message_type ?: 'info'); ?>" role="alert">
+                                <?php echo htmlspecialchars($message); ?>
+                            </div>
+                        <?php endif; ?>
                         <button type="submit" class="btn btn-primary w-100">Login</button>
                     </form>
+                    <div class="mt-3 text-center">
+                        <a href="forgot_password.php">¿Olvidaste tu contraseña?</a>
+                    </div>
                 </div>
             </div>
         </div>
