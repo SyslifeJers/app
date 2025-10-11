@@ -3,6 +3,21 @@ include '../Modulos/head.php';
 $fecha_inicio = isset($_GET['fecha_inicio']) ? $_GET['fecha_inicio'] : '';
 $fecha_fin = isset($_GET['fecha_fin']) ? $_GET['fecha_fin'] : '';
 $tipoPid = isset($_GET['tipoPid']) ? $_GET['tipoPid'] : '';
+$idNino = isset($_GET['idNino']) ? $_GET['idNino'] : '';
+
+if ($tipoPid !== '') {
+    $tipoPid = (int) $tipoPid;
+    if ($tipoPid <= 0) {
+        $tipoPid = '';
+    }
+}
+
+if ($idNino !== '') {
+    $idNino = (int) $idNino;
+    if ($idNino <= 0) {
+        $idNino = '';
+    }
+}
 
 date_default_timezone_set('America/Mexico_City');
 $hoy = date('Y-m-d');
@@ -38,6 +53,10 @@ if (!empty($tipoPid)) {
     $sql .= " AND ci.IdUsuario = '$tipoPid'";
 }
 
+if (!empty($idNino)) {
+    $sql .= " AND ci.IdNino = '$idNino'";
+}
+
 $sql .= " ORDER BY ci.Programado ASC;";
 
 $result = $conn->query($sql);
@@ -47,6 +66,10 @@ $sql_summary = "SELECT SUM(ci.costo) as TotalCosto, COUNT(ci.id) as NumeroCitas,
         WHERE ci.Estatus = 4 ";
 if (!empty($tipoPid)) {
     $sql_summary .= " AND ci.IdUsuario = '$tipoPid'";
+}
+
+if (!empty($idNino)) {
+    $sql_summary .= " AND ci.IdNino = '$idNino'";
 }
 
 if (!empty($fecha_inicio) && !empty($fecha_fin)) {
@@ -71,6 +94,10 @@ WHERE ci.Estatus <> 10 ";
 
 if (!empty($tipoPid)) {
     $sql_summary2 .= " AND ci.IdUsuario = '$tipoPid'";
+}
+
+if (!empty($idNino)) {
+    $sql_summary2 .= " AND ci.IdNino = '$idNino'";
 }
 
 if (!empty($fecha_inicio) && !empty($fecha_fin)) {
@@ -199,6 +226,7 @@ while ($row = $result->fetch_assoc()) {
                                         <th scope="col">Fecha de inicio:</th>
                                         <th scope="col">Fecha de fin:</th>
                                         <th scope="col">Psicólogo</th>
+                                        <th scope="col">Niño</th>
                                         <th scope="col"></th>
                                     </tr>
                                 </thead>
@@ -214,6 +242,8 @@ while ($row = $result->fetch_assoc()) {
                                                     echo $fecha_fin;
                                                 } ?>"></td>
                                         <td><select class="form-select" id="tipoPid" name="tipoPid">
+                                            </select></td>
+                                        <td><select class="form-select" id="idNino" name="idNino">
                                             </select></td>
                                         <td><button class="btn btn-success btn-border" type="submit">
                                                 Buscar
@@ -279,6 +309,14 @@ while ($row = $result->fetch_assoc()) {
                         } ?>
                     </button>
                 </form>
+                <form id="descargarNinoForm" class="mt-2">
+                    <button type="submit" class="btn btn-secondary" id="downloadChildBtn" disabled>
+                        <span class="btn-label">
+                            <i class="fa fa-download"></i>
+                        </span>
+                        Descargar todas las citas del niño
+                    </button>
+                </form>
             </div>
             <iframe id="reporteFrame" style="width: 100%; height: 600px; margin-top: 20px;"></iframe>
         </div>
@@ -296,13 +334,31 @@ include '../Modulos/footer.php';
         const fecha_inicio = document.getElementById('fecha_inicio').value;
         const fecha_fin = document.getElementById('fecha_fin').value;
         const tipoPid = document.getElementById('tipoPid').value;
-        const url = 'imprimir.php?fecha_inicio=' + fecha_inicio + '&fecha_fin=' + fecha_fin + '&tipoPid=' + tipoPid;
+        const idNino = document.getElementById('idNino').value;
+        const url = 'imprimir.php?fecha_inicio=' + encodeURIComponent(fecha_inicio) +
+            '&fecha_fin=' + encodeURIComponent(fecha_fin) +
+            '&tipoPid=' + encodeURIComponent(tipoPid) +
+            '&idNino=' + encodeURIComponent(idNino);
         document.getElementById('reporteFrame').src = url;
     });
 
+    document.getElementById('descargarNinoForm').addEventListener('submit', function (event) {
+        event.preventDefault();
+        const idNino = document.getElementById('idNino').value;
+        if (!idNino) {
+            return;
+        }
+        const url = 'descargar_citas_nino.php?idNino=' + encodeURIComponent(idNino);
+        window.open(url, '_blank');
+    });
+
+    function toggleDownloadButton() {
+        const idNino = document.getElementById('idNino').value;
+        document.getElementById('downloadChildBtn').disabled = idNino === '';
+    }
+
     $(document).ready(function () {
         $.ajax({
-
             url: 'getUsu.php',
             type: 'GET',
             dataType: 'json',
@@ -319,6 +375,28 @@ include '../Modulos/footer.php';
                 }
             }
         });
+
+        $.ajax({
+            url: '../get_names.php',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                var select = $('#idNino');
+                select.empty();
+                select.append('<option value="">Todos</option>');
+                $.each(data, function (index, nino) {
+                    select.append('<option value="' + nino.id + '">' + nino.name + '</option>');
+                });
+                var idNinoSeleccionado = '<?php echo $idNino; ?>';
+                if (idNinoSeleccionado !== '') {
+                    select.val(idNinoSeleccionado);
+                }
+                toggleDownloadButton();
+            }
+        });
+
+        $('#idNino').on('change', toggleDownloadButton);
+
         $('#myTable').DataTable({
             language: {
                 lengthMenu: 'Número de filas _MENU_',
