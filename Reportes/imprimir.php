@@ -9,6 +9,21 @@ $conn = conectar();
 $fecha_inicio = isset($_GET['fecha_inicio']) ? $_GET['fecha_inicio'] : '';
 $fecha_fin = isset($_GET['fecha_fin']) ? $_GET['fecha_fin'] : '';
 $tipoPid = isset($_GET['tipoPid']) ? $_GET['tipoPid'] : '';
+$idNino = isset($_GET['idNino']) ? $_GET['idNino'] : '';
+
+if ($tipoPid !== '') {
+    $tipoPid = (int) $tipoPid;
+    if ($tipoPid <= 0) {
+        $tipoPid = '';
+    }
+}
+
+if ($idNino !== '') {
+    $idNino = (int) $idNino;
+    if ($idNino <= 0) {
+        $idNino = '';
+    }
+}
 // Consulta SQL para la primera tabla
 $sql = "SELECT ci.id,
                n.name,
@@ -28,10 +43,17 @@ $sql = "SELECT ci.id,
 if (!empty($tipoPid)) {
     $sql .= " AND ci.IdUsuario = ?";
 }
+if (!empty($idNino)) {
+    $sql .= " AND ci.IdNino = ?";
+}
 $sql .= " ORDER BY us.name, ci.Programado ASC";
 $stmt = $conn->prepare($sql);
-if (!empty($tipoPid)) {
+if (!empty($tipoPid) && !empty($idNino)) {
+    $stmt->bind_param('ssii', $fecha_inicio, $fecha_fin, $tipoPid, $idNino);
+} elseif (!empty($tipoPid)) {
     $stmt->bind_param('ssi', $fecha_inicio, $fecha_fin, $tipoPid);
+} elseif (!empty($idNino)) {
+    $stmt->bind_param('ssi', $fecha_inicio, $fecha_fin, $idNino);
 } else {
     $stmt->bind_param('ss', $fecha_inicio, $fecha_fin);
 }
@@ -51,10 +73,17 @@ $sql_summary2 = "SELECT SUM(ci.costo) as TotalCosto,
 if (!empty($tipoPid)) {
     $sql_summary2 .= " AND ci.IdUsuario = ?";
 }
+if (!empty($idNino)) {
+    $sql_summary2 .= " AND ci.IdNino = ?";
+}
 $sql_summary2 .= " GROUP BY ci.FormaPago";
 $stmt_summary2 = $conn->prepare($sql_summary2);
-if (!empty($tipoPid)) {
+if (!empty($tipoPid) && !empty($idNino)) {
+    $stmt_summary2->bind_param('ssii', $fecha_inicio, $fecha_fin, $tipoPid, $idNino);
+} elseif (!empty($tipoPid)) {
     $stmt_summary2->bind_param('ssi', $fecha_inicio, $fecha_fin, $tipoPid);
+} elseif (!empty($idNino)) {
+    $stmt_summary2->bind_param('ssi', $fecha_inicio, $fecha_fin, $idNino);
 } else {
     $stmt_summary2->bind_param('ss', $fecha_inicio, $fecha_fin);
 }
