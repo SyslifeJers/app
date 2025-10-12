@@ -5,7 +5,14 @@ const pagoModalEstado = {
   estatus: null,
   costo: 0,
   saldo: 0,
-  pagos: []
+  pagos: [],
+  pacienteId: null,
+  pacienteNombre: '',
+  psicologoId: null,
+  psicologoNombre: '',
+  tipo: '',
+  programado: null,
+  mensajePago: ''
 };
 const modalPagoElement = document.getElementById('ModalTipoPago');
 const tablaPagosBody = document.querySelector('#tablaPagos tbody');
@@ -16,6 +23,19 @@ const saldoActualLabel = document.getElementById('modalSaldoActual');
 const costoCitaLabel = document.getElementById('modalCostoCita');
 const pacienteLabel = document.getElementById('modalPacienteNombre');
 const alertaSaldoInsuficiente = document.getElementById('alertaSaldoInsuficiente');
+const modalProximaCitaElement = document.getElementById('modalProximaCita');
+const alertaPagoExitoso = document.getElementById('alertaPagoExitoso');
+const proximaClienteInput = document.getElementById('proximaCliente');
+const proximaPsicologoInput = document.getElementById('proximaPsicologo');
+const proximaFechaInput = document.getElementById('proximaFecha');
+const proximaCostoInput = document.getElementById('proximaCosto');
+const proximaSendIdClienteInput = document.getElementById('proximaSendIdCliente');
+const proximaSendIdPsicologoInput = document.getElementById('proximaSendIdPsicologo');
+const proximaResumenTipoInput = document.getElementById('proximaResumenTipo');
+const confirmarProximaCitaBtn = document.getElementById('confirmarProximaCita');
+const omitirProximaCitaBtn = document.getElementById('omitirProximaCita');
+const formProximaCita = document.getElementById('formProximaCita');
+const proximaCitaState = { modal: null, reloading: false };
 const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 const METODOS_PAGO = ['Efectivo', 'Transferencia', 'Tarjeta'];
 const METODO_SALDO = 'Saldo';
@@ -27,6 +47,47 @@ const grupoMetodoPaquete = document.getElementById('grupoMetodoPaquete');
 const grupoSaldoPaquete = document.getElementById('grupoSaldoPaquete');
 const resumenSaldoPaqueteInput = document.getElementById('resumenSaldoPaquete');
 const paquetesDisponibles = new Map();
+
+function formatearDatetimeLocal(fecha) {
+  if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
+    return '';
+  }
+
+  const year = fecha.getFullYear();
+  const month = String(fecha.getMonth() + 1).padStart(2, '0');
+  const day = String(fecha.getDate()).padStart(2, '0');
+  const hours = String(fecha.getHours()).padStart(2, '0');
+  const minutes = String(fecha.getMinutes()).padStart(2, '0');
+
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
+function obtenerFechaDesdeCadena(cadena) {
+  if (!cadena) {
+    return null;
+  }
+
+  const normalizada = cadena.includes('T') ? cadena : cadena.replace(' ', 'T');
+  const fecha = new Date(normalizada);
+  if (Number.isNaN(fecha.getTime())) {
+    return null;
+  }
+  return fecha;
+}
+
+function normalizarHoraCerradaInput(input) {
+  if (!input || !input.value) {
+    return;
+  }
+
+  const fecha = obtenerFechaDesdeCadena(input.value);
+  if (!fecha) {
+    return;
+  }
+
+  fecha.setMinutes(0, 0, 0);
+  input.value = formatearDatetimeLocal(fecha);
+}
 
 function obtenerTotalesPagos() {
   const totales = {
@@ -349,16 +410,22 @@ if (agregarPagoSaldoBtn) {
   });
 }
 
-function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo) {
-  if (!modalPagoElement) {
+function actualizarCitaPago(info) {
+  if (!modalPagoElement || !info) {
     return;
   }
 
-  pagoModalEstado.idCita = idCita;
-  pagoModalEstado.estatus = estatus;
-  pagoModalEstado.costo = parseFloat(costo) || 0;
-  pagoModalEstado.saldo = parseFloat(saldo) || 0;
-  pagoModalEstado.pacienteId = pacienteId;
+  pagoModalEstado.idCita = info.idCita || null;
+  pagoModalEstado.estatus = info.estatus || null;
+  pagoModalEstado.costo = parseFloat(info.costo) || 0;
+  pagoModalEstado.saldo = parseFloat(info.saldo) || 0;
+  pagoModalEstado.pacienteId = info.pacienteId || null;
+  pagoModalEstado.pacienteNombre = info.pacienteNombre || '';
+  pagoModalEstado.psicologoId = info.psicologoId || null;
+  pagoModalEstado.psicologoNombre = info.psicologoNombre || '';
+  pagoModalEstado.tipo = info.tipo || '';
+  pagoModalEstado.programado = info.programado || null;
+  pagoModalEstado.mensajePago = '';
 
   if (!pagoModalEstado.modal) {
     pagoModalEstado.modal = new bootstrap.Modal(modalPagoElement, {
@@ -371,6 +438,9 @@ function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo) {
   }
   if (saldoActualLabel) {
     saldoActualLabel.textContent = formatoMoneda.format(pagoModalEstado.saldo);
+  }
+  if (pacienteLabel) {
+    pacienteLabel.textContent = pagoModalEstado.pacienteNombre || '';
   }
   if (alertaSaldoInsuficiente) {
     alertaSaldoInsuficiente.classList.add('d-none');
@@ -424,11 +494,30 @@ function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo) {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', 'cancelar.php', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
 
     xhr.onreadystatechange = function () {
       if (xhr.readyState === 4) {
         pagoModalEstado.modal.hide();
-        location.reload();
+
+        let responseData = null;
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            responseData = JSON.parse(xhr.responseText);
+          } catch (error) {
+            responseData = null;
+          }
+        }
+
+        if (responseData && responseData.success) {
+          pagoModalEstado.mensajePago = responseData.message || '';
+          mostrarModalProximaCita();
+        } else {
+          if (responseData && responseData.message) {
+            alert(responseData.message);
+          }
+          window.location.reload();
+        }
       }
     };
 
@@ -447,6 +536,209 @@ function actualizarCitaPago(idCita, estatus, costo, pacienteId, saldo) {
     xhr.send(params.toString());
   };
 }
+
+function prepararModalProximaCita() {
+  if (!modalProximaCitaElement) {
+    return;
+  }
+
+  if (!proximaCitaState.modal) {
+    proximaCitaState.modal = new bootstrap.Modal(modalProximaCitaElement, {
+      backdrop: 'static',
+      keyboard: false
+    });
+
+    modalProximaCitaElement.addEventListener('hidden.bs.modal', () => {
+      if (proximaCitaState.reloading) {
+        return;
+      }
+      proximaCitaState.reloading = true;
+      window.location.reload();
+    });
+  }
+}
+
+function mostrarModalProximaCita() {
+  if (!modalProximaCitaElement) {
+    window.location.reload();
+    return;
+  }
+
+  prepararModalProximaCita();
+  proximaCitaState.reloading = false;
+
+  if (alertaPagoExitoso) {
+    if (pagoModalEstado.mensajePago) {
+      alertaPagoExitoso.textContent = pagoModalEstado.mensajePago;
+      alertaPagoExitoso.classList.remove('d-none');
+    } else {
+      alertaPagoExitoso.textContent = '';
+      alertaPagoExitoso.classList.add('d-none');
+    }
+  }
+
+  const fechaMinima = new Date();
+  fechaMinima.setSeconds(0, 0);
+  if (fechaMinima.getMinutes() !== 0) {
+    fechaMinima.setHours(fechaMinima.getHours() + 1);
+    fechaMinima.setMinutes(0, 0, 0);
+  }
+
+  let fechaSugerida = '';
+  if (proximaFechaInput) {
+    const fechaProgramada = obtenerFechaDesdeCadena(pagoModalEstado.programado);
+    if (fechaProgramada) {
+      fechaProgramada.setMinutes(0, 0, 0);
+      fechaProgramada.setDate(fechaProgramada.getDate() + 7);
+      fechaSugerida = formatearDatetimeLocal(fechaProgramada);
+    } else {
+      fechaSugerida = formatearDatetimeLocal(fechaMinima);
+    }
+    proximaFechaInput.min = formatearDatetimeLocal(fechaMinima);
+  }
+
+  if (formProximaCita) {
+    formProximaCita.reset();
+    if (proximaClienteInput) {
+      proximaClienteInput.value = pagoModalEstado.pacienteNombre || '';
+    }
+    if (proximaPsicologoInput) {
+      proximaPsicologoInput.value = pagoModalEstado.psicologoNombre || '';
+    }
+    if (proximaSendIdClienteInput) {
+      proximaSendIdClienteInput.value = pagoModalEstado.pacienteId || '';
+    }
+    if (proximaSendIdPsicologoInput) {
+      proximaSendIdPsicologoInput.value = pagoModalEstado.psicologoId || '';
+    }
+    if (proximaResumenTipoInput) {
+      proximaResumenTipoInput.value = pagoModalEstado.tipo || '';
+    }
+    if (proximaFechaInput) {
+      proximaFechaInput.value = fechaSugerida;
+      if (proximaFechaInput.value) {
+        normalizarHoraCerradaInput(proximaFechaInput);
+      }
+    }
+    if (proximaCostoInput) {
+      const costo = Number.isFinite(pagoModalEstado.costo) ? pagoModalEstado.costo : 0;
+      proximaCostoInput.value = costo.toFixed(2);
+    }
+  } else if (proximaFechaInput) {
+    proximaFechaInput.value = fechaSugerida;
+  }
+
+  if (proximaCitaState.modal) {
+    proximaCitaState.modal.show();
+  }
+}
+
+function agendarProximaCita() {
+  if (!formProximaCita) {
+    return;
+  }
+
+  if (proximaFechaInput) {
+    normalizarHoraCerradaInput(proximaFechaInput);
+  }
+
+  const clienteId = proximaSendIdClienteInput ? proximaSendIdClienteInput.value : '';
+  const psicologoId = proximaSendIdPsicologoInput ? proximaSendIdPsicologoInput.value : '';
+  const tipo = proximaResumenTipoInput ? proximaResumenTipoInput.value : '';
+  const fechaValor = proximaFechaInput ? proximaFechaInput.value : '';
+  const costoValor = proximaCostoInput ? proximaCostoInput.value : '';
+
+  if (!clienteId || !psicologoId || !tipo || !fechaValor || !costoValor) {
+    alert('Completa la información de la próxima cita antes de continuar.');
+    return;
+  }
+
+  const fechaSeleccionada = obtenerFechaDesdeCadena(fechaValor);
+  if (!fechaSeleccionada) {
+    alert('Selecciona una fecha válida para la próxima cita.');
+    return;
+  }
+
+  const ahora = new Date();
+  if (fechaSeleccionada < ahora) {
+    alert('La fecha de la próxima cita debe ser igual o mayor a la fecha actual.');
+    return;
+  }
+
+  const costoNumerico = parseFloat(costoValor);
+  if (!Number.isFinite(costoNumerico) || costoNumerico < 0) {
+    alert('Ingresa un costo válido para la próxima cita.');
+    return;
+  }
+
+  const formData = new FormData(formProximaCita);
+  formData.set('sendIdCliente', clienteId);
+  formData.set('sendIdPsicologo', psicologoId);
+  formData.set('resumenTipo', tipo);
+  formData.set('resumenFecha', formatearDatetimeLocal(fechaSeleccionada));
+  formData.set('resumenCosto', costoNumerico.toFixed(2));
+  formData.append('sendIdPaquete', '');
+  formData.append('paqueteMetodo', '');
+
+  fetch('procesar_cita.php', {
+    method: 'POST',
+    body: formData
+  })
+    .then((response) => response.json().catch(() => null))
+    .then((data) => {
+      if (data && data.success) {
+        alert('La próxima cita se agendó correctamente.');
+        proximaCitaState.reloading = true;
+        if (proximaCitaState.modal) {
+          proximaCitaState.modal.hide();
+        }
+        window.location.reload();
+      } else {
+        alert(data && data.message ? data.message : 'No fue posible agendar la próxima cita.');
+      }
+    })
+    .catch(() => {
+      alert('No fue posible agendar la próxima cita.');
+    });
+}
+document.addEventListener('click', (event) => {
+  const target = event.target instanceof Element ? event.target.closest('.pagar-cita-btn') : null;
+  if (!target) {
+    return;
+  }
+
+  const payload = target.getAttribute('data-pago');
+  if (!payload) {
+    return;
+  }
+
+  try {
+    const info = JSON.parse(payload);
+    actualizarCitaPago(info);
+  } catch (error) {
+    console.error('No fue posible preparar el pago de la cita.', error);
+  }
+});
+
+if (confirmarProximaCitaBtn) {
+  confirmarProximaCitaBtn.addEventListener('click', agendarProximaCita);
+}
+
+if (omitirProximaCitaBtn) {
+  omitirProximaCitaBtn.addEventListener('click', () => {
+    proximaCitaState.reloading = true;
+    if (proximaCitaState.modal) {
+      proximaCitaState.modal.hide();
+    }
+    window.location.reload();
+  });
+}
+
+if (proximaFechaInput) {
+  proximaFechaInput.addEventListener('change', () => normalizarHoraCerradaInput(proximaFechaInput));
+  proximaFechaInput.addEventListener('blur', () => normalizarHoraCerradaInput(proximaFechaInput));
+}
+
 function enviarFormularioJSON() {
 const form = document.getElementById('formCita');
 const formData = new FormData(form);
@@ -772,22 +1064,38 @@ function searchNino() {
 window.onload = loadAll;
 
 const citaDiaInput = document.getElementById('citaDia');
+if (citaDiaInput) {
+  const fechaMinima = new Date();
+  fechaMinima.setSeconds(0, 0);
+  if (fechaMinima.getMinutes() !== 0) {
+    fechaMinima.setHours(fechaMinima.getHours() + 1);
+    fechaMinima.setMinutes(0, 0, 0);
+  }
 
-// Crear una nueva fecha que sea mañana
-const today = new Date();
-const tomorrow = new Date(today);
-tomorrow.setDate(today.getDate());
+  citaDiaInput.min = formatearDatetimeLocal(fechaMinima);
+  citaDiaInput.step = 3600;
+  citaDiaInput.addEventListener('change', () => {
+    normalizarHoraCerradaInput(citaDiaInput);
+    updateResumen();
+  });
+  citaDiaInput.addEventListener('blur', () => normalizarHoraCerradaInput(citaDiaInput));
+  normalizarHoraCerradaInput(citaDiaInput);
+}
 
-// Formatear la fecha en el formato adecuado para datetime-local
-const year = tomorrow.getFullYear();
-const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
-const day = String(tomorrow.getDate()).padStart(2, '0');
-const hours = String(tomorrow.getHours()).padStart(2, '0');
-const minutes = String(tomorrow.getMinutes()).padStart(2, '0');
+const fechaProgramadaInput = document.getElementById('fechaProgramada');
+if (fechaProgramadaInput) {
+  const fechaMinimaReprogramacion = new Date();
+  fechaMinimaReprogramacion.setSeconds(0, 0);
+  if (fechaMinimaReprogramacion.getMinutes() !== 0) {
+    fechaMinimaReprogramacion.setHours(fechaMinimaReprogramacion.getHours() + 1);
+    fechaMinimaReprogramacion.setMinutes(0, 0, 0);
+  }
 
-// Asignar la fecha mínima al input
-const minDateTime = `${year}-${month}-${day}T${hours}:${minutes}`;
-citaDiaInput.min = minDateTime;
+  fechaProgramadaInput.min = formatearDatetimeLocal(fechaMinimaReprogramacion);
+  fechaProgramadaInput.step = 3600;
+  fechaProgramadaInput.addEventListener('change', () => normalizarHoraCerradaInput(fechaProgramadaInput));
+  fechaProgramadaInput.addEventListener('blur', () => normalizarHoraCerradaInput(fechaProgramadaInput));
+}
 $(document).ready(function () {
   document.getElementById('idResultado').style.display = "none";
   $('#myTable').DataTable({

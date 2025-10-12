@@ -85,6 +85,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
        ci.IdNino AS paciente_id,
        n.name,
        us.name as Psicologo,
+       ci.IdUsuario AS PsicologoId,
        ci.costo,
        ci.Programado,
        DATE(ci.Programado) as Fecha,
@@ -98,13 +99,13 @@ INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
 INNER JOIN Estatus es ON es.id = ci.Estatus
 " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
-WHERE ci.Estatus = 2 OR ci.Estatus = 3
+WHERE (ci.Estatus = 2 OR ci.Estatus = 3)
+  AND DATE(ci.Programado) = CURDATE()
 ORDER BY ci.Programado ASC;";
 
           $result = $conn->query($sql);
           date_default_timezone_set('America/Mexico_City');
           $hoy = date('Y-m-d');
-          echo $hoy;
           // Verificar si hay resultados y generar la tabla HTML
           if ($result->num_rows > 0) {
             echo "<table border='1' id=\"myTable\" >
@@ -161,15 +162,19 @@ ORDER BY ci.Programado ASC;";
                   $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
                 }
               } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
-                $onclickPago = sprintf(
-                  'actualizarCitaPago(%d, %d, %f, %d, %f)',
-                  $row['id'],
-                  4,
-                  (float) $row['costo'],
-                  (int) $row['paciente_id'],
-                  (float) $row['saldo_paquete']
-                );
-                $botones[] = '<button class="btn btn-success btn-sm" onclick="' . $onclickPago . '">Pagar</button>';
+                $pagoInfo = [
+                  'idCita' => (int) $row['id'],
+                  'estatus' => 4,
+                  'costo' => (float) $row['costo'],
+                  'pacienteId' => (int) $row['paciente_id'],
+                  'saldo' => (float) $row['saldo_paquete'],
+                  'programado' => $row['Programado'],
+                  'psicologoId' => (int) $row['PsicologoId'],
+                  'tipo' => $row['Tipo'],
+                  'pacienteNombre' => $row['name'],
+                  'psicologoNombre' => $row['Psicologo']
+                ];
+                $botones[] = '<button class="btn btn-success btn-sm pagar-cita-btn" data-pago="' . htmlspecialchars(json_encode($pagoInfo), ENT_QUOTES, 'UTF-8') . '">Pagar</button>';
               }
 
               echo '<tr>';
@@ -273,7 +278,7 @@ ORDER BY ci.Programado ASC;";
             </div>
             <div class="form-group">
               <label for="citaDia"> Día de la cita</label>
-              <input type="datetime-local" id="citaDia" name="citaDia" class="form-select" onchange="updateResumen()">
+              <input type="datetime-local" id="citaDia" name="citaDia" class="form-select" onchange="updateResumen()" step="3600">
             </div>
           </div>
         </div>
@@ -329,7 +334,7 @@ ORDER BY ci.Programado ASC;";
               </div>
               <div class="form-group">
                 <label for="resumenFecha">Fecha de la Cita</label>
-                <input type="datetime-local" name="resumenFecha" id="resumenFecha" class="form-control" readonly>
+                <input type="datetime-local" name="resumenFecha" id="resumenFecha" class="form-control" readonly step="3600">
               </div>
               <button type="submit" class="btn btn-primary mt-3">Guardar Cita</button>
               <hr>
@@ -415,6 +420,45 @@ ORDER BY ci.Programado ASC;";
             </div>
         </div>
     </div>
+<div class="modal fade" id="modalProximaCita" tabindex="-1" aria-labelledby="modalProximaCitaLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalProximaCitaLabel">Agendar próxima cita</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-success d-none" id="alertaPagoExitoso" role="alert"></div>
+        <p class="mb-3">¿Deseas agendar una cita para la próxima semana en el mismo horario? Puedes ajustar los datos antes de confirmar.</p>
+        <form id="formProximaCita">
+          <input type="hidden" name="sendIdCliente" id="proximaSendIdCliente">
+          <input type="hidden" name="sendIdPsicologo" id="proximaSendIdPsicologo">
+          <input type="hidden" name="resumenTipo" id="proximaResumenTipo">
+          <div class="mb-3">
+            <label for="proximaCliente" class="form-label">Cliente</label>
+            <input type="text" class="form-control" id="proximaCliente" readonly>
+          </div>
+          <div class="mb-3">
+            <label for="proximaPsicologo" class="form-label">Psicólogo</label>
+            <input type="text" class="form-control" id="proximaPsicologo" readonly>
+          </div>
+          <div class="mb-3">
+            <label for="proximaFecha" class="form-label">Fecha sugerida</label>
+            <input type="datetime-local" class="form-control" id="proximaFecha" name="resumenFecha" step="3600" required>
+          </div>
+          <div class="mb-3">
+            <label for="proximaCosto" class="form-label">Costo</label>
+            <input type="number" class="form-control" id="proximaCosto" name="resumenCosto" min="0" step="0.01" required>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" id="omitirProximaCita">Omitir</button>
+        <button type="button" class="btn btn-primary" id="confirmarProximaCita">Agendar cita</button>
+      </div>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="updateModal" tabindex="-1" aria-labelledby="updateModalLabel" aria-hidden="true">
   <div class="modal-dialog">
     <div class="modal-content">
@@ -430,7 +474,7 @@ ORDER BY ci.Programado ASC;";
           </div>
           <div class="mb-3">
             <label for="fechaProgramada" class="form-label">Nueva Fecha Programada</label>
-            <input type="datetime-local" class="form-control" id="fechaProgramada" name="fechaProgramada" required>
+            <input type="datetime-local" class="form-control" id="fechaProgramada" name="fechaProgramada" required step="3600">
           </div>
           <div class="alert alert-info" id="solicitudAviso" style="display:none;">
             La solicitud será enviada al coordinador para su aprobación.

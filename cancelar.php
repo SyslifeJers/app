@@ -18,6 +18,28 @@ $rolUsuario = $_SESSION['rol'] ?? null;
 $ROL_VENTAS = 1;
 $ROL_ADMIN = 3;
 $ROL_COORDINADOR = 5;
+$isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
+
+function finalizarRespuesta($success, $mensaje, $tipo = 'success', array $extra = [])
+{
+    global $isAjax;
+
+    $_SESSION['cancelacion_mensaje'] = $mensaje;
+    $_SESSION['cancelacion_tipo'] = $tipo;
+
+    if ($isAjax) {
+        header('Content-Type: application/json');
+        echo json_encode(array_merge([
+            'success' => $success,
+            'message' => $mensaje,
+            'tipo' => $tipo,
+        ], $extra));
+        exit;
+    }
+
+    header('Location: index.php');
+    exit;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
@@ -43,8 +65,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $montoPago = isset($_POST['montoPago']) ? (float) $_POST['montoPago'] : 0.0;
 
     if ($citaId <= 0 || $estatus <= 0) {
-        header('Location: index.php');
-        exit;
+        finalizarRespuesta(false, 'La cita seleccionada no es válida.', 'danger');
     }
 
     $fechaProgramadaActual = null;
@@ -59,10 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (!$fechaProgramadaActual) {
-        $_SESSION['cancelacion_mensaje'] = 'No fue posible localizar la cita seleccionada.';
-        $_SESSION['cancelacion_tipo'] = 'danger';
-        header('Location: index.php');
-        exit;
+        finalizarRespuesta(false, 'No fue posible localizar la cita seleccionada.', 'danger');
     }
 
     if ($rolUsuario === $ROL_VENTAS && $estatus === 1) {
@@ -71,10 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($tablaSolicitudes instanceof mysqli_result) {
                 $tablaSolicitudes->free();
             }
-            $_SESSION['cancelacion_mensaje'] = 'El módulo de solicitudes no está disponible. Contacta al administrador.';
-            $_SESSION['cancelacion_tipo'] = 'danger';
-            header('Location: index.php');
-            exit;
+            finalizarRespuesta(false, 'El módulo de solicitudes no está disponible. Contacta al administrador.', 'danger');
         }
         $tablaSolicitudes->free();
 
@@ -88,10 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($totalPendientes > 0) {
-            $_SESSION['cancelacion_mensaje'] = 'Ya existe una solicitud de cancelación pendiente para esta cita.';
-            $_SESSION['cancelacion_tipo'] = 'warning';
-            header('Location: index.php');
-            exit;
+            finalizarRespuesta(false, 'Ya existe una solicitud de cancelación pendiente para esta cita.', 'warning');
         }
 
         if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'cancelacion')")) {
@@ -109,15 +121,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'SolicitudReprogramacion',
                 (string) $solicitudId
             );
-            $_SESSION['cancelacion_mensaje'] = 'Se envió la solicitud de cancelación para aprobación.';
-            $_SESSION['cancelacion_tipo'] = 'success';
+            finalizarRespuesta(true, 'Se envió la solicitud de cancelación para aprobación.', 'success');
         } else {
-            $_SESSION['cancelacion_mensaje'] = 'No fue posible registrar la solicitud de cancelación. Intenta nuevamente.';
-            $_SESSION['cancelacion_tipo'] = 'danger';
+            finalizarRespuesta(false, 'No fue posible registrar la solicitud de cancelación. Intenta nuevamente.', 'danger');
         }
-
-        header('Location: index.php');
-        exit;
     }
 
     $usaTransaccion = false;
@@ -280,10 +287,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($usaTransaccion) {
             $conn->rollback();
         }
-        $_SESSION['cancelacion_mensaje'] = $e->getMessage();
-        $_SESSION['cancelacion_tipo'] = 'danger';
-        header('Location: index.php');
-        exit;
+        finalizarRespuesta(false, $e->getMessage(), 'danger');
     }
 
     $accionLog = 'actualizar_estatus';
@@ -356,8 +360,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($estatus === 1) {
-        $_SESSION['cancelacion_mensaje'] = 'Cita cancelada correctamente.';
-        $_SESSION['cancelacion_tipo'] = 'success';
+        finalizarRespuesta(true, 'Cita cancelada correctamente.', 'success');
     } elseif ($estatus === 4) {
         $mensajePago = 'Pago registrado correctamente.';
         if (!empty($detallesPagos)) {
@@ -366,15 +369,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!empty($detallesSaldo)) {
             $mensajePago .= ' ' . implode(' ', $detallesSaldo);
         }
-        $_SESSION['cancelacion_mensaje'] = $mensajePago;
-        $_SESSION['cancelacion_tipo'] = 'success';
-    } else {
-        $_SESSION['cancelacion_mensaje'] = 'Estatus de la cita actualizado correctamente.';
-        $_SESSION['cancelacion_tipo'] = 'success';
-    }
 
-    header('Location: index.php');
-    exit;
+        $extra = [];
+        if ($isAjax) {
+            $extra['cita'] = [
+                'programado' => $fechaProgramadaActual,
+                'pacienteId' => $pacienteId,
+                'costo' => (float) $costoCita
+            ];
+        }
+
+        finalizarRespuesta(true, $mensajePago, 'success', $extra);
+    } else {
+        finalizarRespuesta(true, 'Estatus de la cita actualizado correctamente.', 'success');
+    }
 }
 
 $conn->close();
