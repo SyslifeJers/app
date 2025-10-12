@@ -119,6 +119,7 @@ include '../Modulos/head.php';
     }
 
     .fc-event.calendar-event .calendar-event-time {
+        color: blue;
         display: block;
         font-size: 0.75rem;
         text-transform: uppercase;
@@ -128,11 +129,13 @@ include '../Modulos/head.php';
     }
 
     .fc-event.calendar-event .calendar-event-paciente {
+        color: #0f172a;
         font-size: 0.86rem;
         font-weight: 600;
     }
 
     .fc-event.calendar-event .calendar-event-psicologo {
+        color: gray;
         font-size: 0.78rem;
         opacity: 0.9;
     }
@@ -225,23 +228,10 @@ include '../Modulos/head.php';
 <div class="page-inner">
     <div class="page-header">
         <h3 class="fw-bold mb-3">Calendario de citas</h3>
-        <ul class="breadcrumbs mb-3">
-            <li class="nav-home">
-                <a href="/index.php">
-                    <i class="icon-home"></i>
-                </a>
-            </li>
-            <li class="separator">
-                <i class="icon-arrow-right"></i>
-            </li>
-            <li class="nav-item">
-                <a>Calendario</a>
-            </li>
-        </ul>
-        <p class="mb-0 text-muted">Consulta las citas programadas y revisa los detalles de cada paciente y psicóloga.</p>
-    </div>
 
-    <div class="row">
+        
+    </div>
+  <div class="row">
         <div class="col-12">
             <div class="card">
                 <div class="card-body calendar-wrapper">

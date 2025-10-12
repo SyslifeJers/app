@@ -115,19 +115,19 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
                  <li class="nav-item ">
         <a class="nav-link" href="/Clientes/index.php"><i class="fas fa-users"></i>Clientes <span class="sr-only"></span></a>
       </li>
-      <?php if ($rol !== 2) { ?>
+      <?php if ($rol == 3 || $rol == 5) { ?>
            <li class="nav-item ">
         <a class="nav-link" href="/Usuarios/index.php"><i class="fas fa-user"></i>Psicologos <span class="sr-only"></span></a>
       </li>
       <?php } ?>
 
            <li class="nav-item ">
-        <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Citas <span class="sr-only"></span></a>
+        <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Corte de caja <span class="sr-only"></span></a>
       </li>
            <li class="nav-item ">
         <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
       </li>
-      <?php if ($rol == 3 || $rol == 4) {?>
+      <?php if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
       </li>
@@ -142,7 +142,7 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
       </li>
       <?php }
 
-      if ($rol == 3) {?>
+      if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Reportes/index.php"><i class="fas fa-chart-pie"></i>Reportes <span class="sr-only"></span></a>
       </li>
