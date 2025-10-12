@@ -3,6 +3,11 @@ include '../Modulos/head.php';
 
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $puedeGestionarActivaciones = in_array($rolUsuario, [3, 5], true);
+$puedeAjustarSaldoDirecto = $puedeGestionarActivaciones;
+$puedeSolicitarAjusteSaldo = $rolUsuario > 0;
+$textoBotonSaldoDetalle = $puedeAjustarSaldoDirecto ? 'Ajustar saldo' : 'Solicitar ajuste de saldo';
+$textoTituloModalSaldo = $puedeAjustarSaldoDirecto ? 'Ajustar saldo del paciente' : 'Solicitar ajuste de saldo';
+$textoBotonModalSaldo = $puedeAjustarSaldoDirecto ? 'Aplicar ajuste' : 'Enviar solicitud';
 $ocultarNinosInactivos = ($rolUsuario === 1);
 ?>
 
@@ -251,9 +256,9 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     <button type="button" class="btn btn-outline-primary flex-fill" id="detalleEditarBtn">
                         <i class="fas fa-edit me-1"></i>Editar
                     </button>
-                    <?php if ($puedeGestionarActivaciones): ?>
+                    <?php if ($puedeSolicitarAjusteSaldo): ?>
                         <button type="button" class="btn btn-outline-success flex-fill" id="detalleSaldoBtn">
-                            <i class="fas fa-wallet me-1"></i>Solicitar ajuste de saldo
+                            <i class="fas fa-wallet me-1"></i><?php echo htmlspecialchars($textoBotonSaldoDetalle, ENT_QUOTES, 'UTF-8'); ?>
                         </button>
                     <?php endif; ?>
                 </div>
@@ -374,7 +379,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
         <div class="modal-content">
             <form id="saldoForm">
                 <div class="modal-header">
-                    <h5 class="modal-title" id="modalSaldoLabel">Solicitar ajuste de saldo</h5>
+                    <h5 class="modal-title" id="modalSaldoLabel"><?php echo htmlspecialchars($textoTituloModalSaldo, ENT_QUOTES, 'UTF-8'); ?></h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
@@ -404,7 +409,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">Enviar solicitud</button>
+                    <button type="submit" class="btn btn-primary"><?php echo htmlspecialchars($textoBotonModalSaldo, ENT_QUOTES, 'UTF-8'); ?></button>
                 </div>
             </form>
         </div>
@@ -551,6 +556,17 @@ include '../Modulos/footer.php';
     const saldoMontoInput = document.getElementById('saldoMonto');
     const saldoComentarioInput = document.getElementById('saldoComentario');
     const saldoSubmitButton = saldoForm ? saldoForm.querySelector('button[type="submit"]') : null;
+    const puedeAjustarSaldoDirecto = <?php echo $puedeAjustarSaldoDirecto ? 'true' : 'false'; ?>;
+    const mensajeMontoInvalido = puedeAjustarSaldoDirecto
+        ? 'Ingresa un monto distinto de cero para ajustar el saldo.'
+        : 'Ingresa un monto distinto de cero para solicitar el ajuste.';
+    const mensajeExitoSaldo = puedeAjustarSaldoDirecto
+        ? 'Saldo actualizado correctamente.'
+        : 'Solicitud enviada para aprobación. El saldo se actualizará cuando sea atendida.';
+    const mensajeErrorSaldo = puedeAjustarSaldoDirecto
+        ? 'No se pudo ajustar el saldo.'
+        : 'No se pudo registrar la solicitud.';
+    const saldoEndpoint = puedeAjustarSaldoDirecto ? 'ajustarSaldo.php' : 'solicitarAjusteSaldo.php';
     const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
     function formatCurrency(value) {
@@ -747,7 +763,7 @@ include '../Modulos/footer.php';
             }
 
             if (!Number.isFinite(monto) || Math.abs(monto) < 0.01) {
-                showSaldoAlert('Ingresa un monto distinto de cero para solicitar el ajuste.', 'warning');
+                showSaldoAlert(mensajeMontoInvalido, 'warning');
                 return;
             }
 
@@ -757,7 +773,7 @@ include '../Modulos/footer.php';
                 saldoSubmitButton.disabled = true;
             }
 
-            fetch('solicitarAjusteSaldo.php', {
+            fetch(saldoEndpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -772,14 +788,14 @@ include '../Modulos/footer.php';
                     if (!response.ok) {
                         return response.json()
                             .then(function (payload) {
-                                const message = payload && payload.error ? payload.error : 'No se pudo registrar la solicitud.';
+                                const message = payload && payload.error ? payload.error : mensajeErrorSaldo;
                                 throw new Error(message);
                             })
                             .catch(function (error) {
                                 if (error instanceof Error) {
                                     throw error;
                                 }
-                                throw new Error('No se pudo registrar la solicitud.');
+                                throw new Error(mensajeErrorSaldo);
                             });
                     }
 
@@ -787,25 +803,39 @@ include '../Modulos/footer.php';
                 })
                 .then(function (payload) {
                     if (!payload || !payload.success) {
-                        const errorMessage = payload && payload.error ? payload.error : 'No se pudo registrar la solicitud.';
+                        const errorMessage = payload && payload.error ? payload.error : mensajeErrorSaldo;
                         throw new Error(errorMessage);
                     }
 
-                    showSaldoAlert('Solicitud enviada para aprobación. El saldo se actualizará cuando sea atendida.', 'success');
+                    showSaldoAlert(mensajeExitoSaldo, 'success');
 
-                    if (saldoPacienteActualInput && Object.prototype.hasOwnProperty.call(payload, 'saldoActual')) {
-                        const saldoActualNumerico = Number.parseFloat(payload.saldoActual);
-                        if (!Number.isNaN(saldoActualNumerico)) {
-                            saldoPacienteActualInput.value = formatCurrency(saldoActualNumerico);
-                            saldoPacienteActualInput.dataset.saldoNumerico = String(saldoActualNumerico);
+                    if (puedeAjustarSaldoDirecto) {
+                        if (saldoPacienteActualInput && Object.prototype.hasOwnProperty.call(payload, 'nuevoSaldo')) {
+                            const nuevoSaldoNumerico = Number.parseFloat(payload.nuevoSaldo);
+                            if (!Number.isNaN(nuevoSaldoNumerico)) {
+                                saldoPacienteActualInput.value = formatCurrency(nuevoSaldoNumerico);
+                                saldoPacienteActualInput.dataset.saldoNumerico = String(nuevoSaldoNumerico);
+                                if (saldoPacientePrevistoInput) {
+                                    saldoPacientePrevistoInput.value = formatCurrency(nuevoSaldoNumerico);
+                                    saldoPacientePrevistoInput.dataset.saldoPrevisto = String(nuevoSaldoNumerico);
+                                }
+                            }
                         }
-                    }
+                    } else {
+                        if (saldoPacienteActualInput && Object.prototype.hasOwnProperty.call(payload, 'saldoActual')) {
+                            const saldoActualNumerico = Number.parseFloat(payload.saldoActual);
+                            if (!Number.isNaN(saldoActualNumerico)) {
+                                saldoPacienteActualInput.value = formatCurrency(saldoActualNumerico);
+                                saldoPacienteActualInput.dataset.saldoNumerico = String(saldoActualNumerico);
+                            }
+                        }
 
-                    if (saldoPacientePrevistoInput && Object.prototype.hasOwnProperty.call(payload, 'saldoSolicitado')) {
-                        const saldoSolicitadoNumerico = Number.parseFloat(payload.saldoSolicitado);
-                        if (!Number.isNaN(saldoSolicitadoNumerico)) {
-                            saldoPacientePrevistoInput.value = formatCurrency(saldoSolicitadoNumerico);
-                            saldoPacientePrevistoInput.dataset.saldoPrevisto = String(saldoSolicitadoNumerico);
+                        if (saldoPacientePrevistoInput && Object.prototype.hasOwnProperty.call(payload, 'saldoSolicitado')) {
+                            const saldoSolicitadoNumerico = Number.parseFloat(payload.saldoSolicitado);
+                            if (!Number.isNaN(saldoSolicitadoNumerico)) {
+                                saldoPacientePrevistoInput.value = formatCurrency(saldoSolicitadoNumerico);
+                                saldoPacientePrevistoInput.dataset.saldoPrevisto = String(saldoSolicitadoNumerico);
+                            }
                         }
                     }
 
@@ -821,7 +851,7 @@ include '../Modulos/footer.php';
                 })
                 .catch(function (error) {
                     console.error(error);
-                    showSaldoAlert(error.message || 'No se pudo registrar la solicitud.', 'danger');
+                    showSaldoAlert(error.message || mensajeErrorSaldo, 'danger');
                 })
                 .finally(function () {
                     if (saldoSubmitButton) {

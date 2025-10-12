@@ -12,7 +12,7 @@ if (!isset($_SESSION['id'])) {
 }
 
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
-if (!in_array($rolUsuario, [3, 5], true)) {
+if ($rolUsuario <= 0) {
     http_response_code(403);
     echo json_encode(['error' => 'No tienes permisos para solicitar ajustes de saldo.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
