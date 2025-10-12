@@ -126,7 +126,7 @@ function actualizarResumenPagos() {
     let mensaje = 'Total registrado: ' + formatoMoneda.format(totales.total) + '. ';
     if (totales.total + 0.0001 < pagoModalEstado.costo) {
       const faltante = pagoModalEstado.costo - totales.total;
-      mensaje += 'Faltan ' + formatoMoneda.format(faltante) + ' por cubrir.';
+      mensaje += 'Faltan ' + formatoMoneda.format(faltante) + ' por cubrir. El saldo pendiente se sumará a próximas citas.';
     } else {
       const excedente = totales.total - pagoModalEstado.costo;
       if (excedente > 0.009) {
@@ -481,9 +481,16 @@ function actualizarCitaPago(info) {
       });
     }
 
-    if (totales.total + 0.0001 < pagoModalEstado.costo) {
-      alert('El monto total registrado es menor al costo de la cita.');
-      return;
+    const faltantePago = Math.max(0, pagoModalEstado.costo - totales.total);
+    if (faltantePago > 0.009) {
+      const continuarConSaldoPendiente = window.confirm(
+        'Faltan ' +
+          formatoMoneda.format(faltantePago) +
+          ' por cubrir. El saldo pendiente se sumará a próximas citas.\n¿Deseas continuar?'
+      );
+      if (!continuarConSaldoPendiente) {
+        return;
+      }
     }
 
     if (totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
