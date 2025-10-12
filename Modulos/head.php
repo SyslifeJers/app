@@ -136,6 +136,12 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
       </li>
       <?php }
 
+      if ($rol == 3 || $rol == 5) {?>
+                   <li class="nav-item ">
+        <a class="nav-link" href="/Clientes/solicitudes_saldo.php"><i class="fas fa-wallet"></i>Solicitudes de ajuste de saldo <span class="sr-only"></span></a>
+      </li>
+      <?php }
+
       if ($rol == 3) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Reportes/index.php"><i class="fas fa-chart-pie"></i>Reportes <span class="sr-only"></span></a>
