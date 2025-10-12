@@ -194,10 +194,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ];
             }
 
-            if ($totalPagos + 0.0001 < (float) $costoCita) {
-                throw new Exception('El monto total registrado es menor al costo de la cita.');
-            }
-
             $saldoDisponible = obtenerSaldoPaciente($conn, (int) $pacienteId);
             if ($totalSaldoUtilizado > 0) {
                 if ($saldoDisponible + 0.0001 < $totalSaldoUtilizado) {
@@ -216,6 +212,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     throw new Exception('No fue posible almacenar el saldo restante del paciente.');
                 }
                 $detallesSaldo[] = sprintf('Se agregaron %s al saldo del paciente.', number_format($excedente, 2));
+            }
+
+            $faltante = max(0, (float) $costoCita - $totalPagos);
+            if ($faltante > 0) {
+                if (!ajustarSaldoPaciente($conn, (int) $pacienteId, -1 * $faltante)) {
+                    throw new Exception('No fue posible registrar el saldo pendiente del paciente.');
+                }
+                $detallesSaldo[] = sprintf('Quedó un saldo pendiente de %s para próximas citas.', number_format($faltante, 2));
             }
 
             $stmtEliminarPagos = $conn->prepare('DELETE FROM CitaPagos WHERE cita_id = ?');
