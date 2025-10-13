@@ -208,6 +208,43 @@ include '../Modulos/head.php';
         color: #1f2937;
     }
 
+    .calendar-psychologist-legend {
+        background-color: #ffffff;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        box-shadow: 0 10px 25px rgba(15, 23, 42, 0.08);
+    }
+
+    .calendar-psychologist-legend .psychologist-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        border-radius: 999px;
+        padding: 0.45rem 0.9rem;
+        font-size: 0.85rem;
+        font-weight: 600;
+        border: 1px solid transparent;
+        background-color: #e2e8f0;
+        color: #1e293b;
+        transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        box-shadow: 0 10px 20px rgba(15, 23, 42, 0.1);
+    }
+
+    .calendar-psychologist-legend .psychologist-badge::before {
+        content: '';
+        width: 0.75rem;
+        height: 0.75rem;
+        border-radius: 999px;
+        border: 1px solid rgba(15, 23, 42, 0.15);
+        background: var(--psychologist-badge-color, rgba(148, 163, 184, 0.6));
+        flex-shrink: 0;
+    }
+
+    .calendar-psychologist-legend .psychologist-badge:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 18px 30px rgba(15, 23, 42, 0.18);
+    }
+
     .status-pill {
         display: inline-flex;
         align-items: center;
@@ -327,6 +364,12 @@ include '../Modulos/head.php';
             </div>
         </div>
     </div>
+    <div class="row mt-3 d-none" id="psychologist-legend-row">
+        <div class="col-12">
+            <h6 class="fw-semibold mb-2">Colores por psicóloga</h6>
+            <div class="d-flex flex-wrap gap-2 calendar-psychologist-legend" id="calendar-psychologist-legend"></div>
+        </div>
+    </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
@@ -359,9 +402,20 @@ include '../Modulos/head.php';
         const availableSlotsMessage = document.getElementById('available-slots-message');
         const availableSlotsList = document.getElementById('available-slots-list');
         const togglePastEventsButton = document.getElementById('toggle-past-events');
+        const psychologistLegendRow = document.getElementById('psychologist-legend-row');
+        const psychologistLegendContainer = document.getElementById('calendar-psychologist-legend');
+
+        function getPsychologistDisplayName(value) {
+            if (typeof value !== 'string') {
+                return 'Sin registro';
+            }
+
+            const trimmed = value.trim();
+            return trimmed !== '' ? trimmed : 'Sin registro';
+        }
 
         function computePsychologistPalette(name) {
-            const key = name && name.trim() !== '' ? name.trim() : 'Sin asignar';
+            const key = getPsychologistDisplayName(name);
             if (psychologistColorCache[key]) {
                 return psychologistColorCache[key];
             }
@@ -458,6 +512,66 @@ include '../Modulos/head.php';
                 togglePastEventsButton.textContent = 'Mostrar citas pasadas';
                 togglePastEventsButton.setAttribute('aria-pressed', 'false');
             }
+        }
+
+        function updatePsychologistLegend(events) {
+            if (!psychologistLegendContainer || !psychologistLegendRow) {
+                return;
+            }
+
+            psychologistLegendContainer.innerHTML = '';
+
+            if (!Array.isArray(events) || events.length === 0) {
+                psychologistLegendRow.classList.add('d-none');
+                return;
+            }
+
+            const psychologistMap = new Map();
+
+            events.forEach(function (event) {
+                if (!event || !event.extendedProps) {
+                    return;
+                }
+
+                if (event.extendedProps.estatus === 'Cancelada') {
+                    return;
+                }
+
+                const displayName = getPsychologistDisplayName(event.extendedProps.psicologo);
+                if (psychologistMap.has(displayName)) {
+                    return;
+                }
+
+                const palette = event.extendedProps.psicologoColor || computePsychologistPalette(displayName);
+                psychologistMap.set(displayName, palette);
+            });
+
+            if (psychologistMap.size === 0) {
+                psychologistLegendRow.classList.add('d-none');
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+
+            Array.from(psychologistMap.entries())
+                .sort(function (a, b) {
+                    return a[0].localeCompare(b[0], 'es', { sensitivity: 'base' });
+                })
+                .forEach(function (entry) {
+                    const name = entry[0];
+                    const palette = entry[1];
+                    const badge = document.createElement('span');
+                    badge.className = 'psychologist-badge';
+                    badge.textContent = name;
+                    badge.style.background = palette.background;
+                    badge.style.color = palette.text;
+                    badge.style.borderColor = palette.border;
+                    badge.style.setProperty('--psychologist-badge-color', palette.border);
+                    fragment.appendChild(badge);
+                });
+
+            psychologistLegendContainer.appendChild(fragment);
+            psychologistLegendRow.classList.remove('d-none');
         }
 
         const dateFormatter = new Intl.DateTimeFormat('es-MX', {
@@ -985,7 +1099,7 @@ include '../Modulos/head.php';
                         const events = payload.data.map(function (item) {
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
                             const paciente = item.paciente || 'Sin registro';
-                            const psicologo = item.psicologo || 'Sin registro';
+                            const psicologo = getPsychologistDisplayName(item.psicologo);
                             const title = 'Paciente: ' + paciente + ' | Psicóloga: ' + psicologo;
 
                             const classNames = ['calendar-event'];
@@ -1052,6 +1166,7 @@ include '../Modulos/head.php';
                                 return typeof startTimestamp === 'number' && startTimestamp >= todayTimestamp;
                             });
 
+                        updatePsychologistLegend(filteredEvents);
                         hideAlert();
                         successCallback(filteredEvents);
                     })
