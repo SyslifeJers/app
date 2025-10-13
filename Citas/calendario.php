@@ -253,6 +253,9 @@ include '../Modulos/head.php';
                             <button type="button" class="btn btn-outline-secondary flex-grow-1 flex-sm-grow-0" id="clear-calendar-filters">
                                 Limpiar filtros
                             </button>
+                            <button type="button" class="btn btn-outline-primary flex-grow-1 flex-sm-grow-0" id="toggle-past-events" aria-pressed="false">
+                                Mostrar citas pasadas
+                            </button>
                         </div>
                     </div>
                     <div id="available-slots-container" class="calendar-availability mb-4 d-none">
@@ -346,6 +349,7 @@ include '../Modulos/head.php';
         const psychologistColorCache = {};
         let alertTimeoutId = null;
         let selectedEventId = null;
+        let showPastEvents = false;
 
         const psychologistSelect = document.getElementById('calendar-filter-psychologist');
         const availableDateInput = document.getElementById('available-date');
@@ -354,6 +358,7 @@ include '../Modulos/head.php';
         const availableSlotsContainer = document.getElementById('available-slots-container');
         const availableSlotsMessage = document.getElementById('available-slots-message');
         const availableSlotsList = document.getElementById('available-slots-list');
+        const togglePastEventsButton = document.getElementById('toggle-past-events');
 
         function computePsychologistPalette(name) {
             const key = name && name.trim() !== '' ? name.trim() : 'Sin asignar';
@@ -369,14 +374,18 @@ include '../Modulos/head.php';
 
             const absHash = Math.abs(hash);
             const hue = absHash % 360;
-            const startLightness = 92 - (absHash % 12);
-            const endLightness = 65 - (absHash % 8);
-            const startColor = 'hsl(' + hue + ', 85%, ' + startLightness + '%)';
-            const endColor = 'hsl(' + hue + ', 70%, ' + endLightness + '%)';
+            const saturation = 45 + (absHash % 12);
+            const startLightness = 94 - (absHash % 6);
+            const endLightness = Math.max(72, startLightness - 14);
+
+            const startColor = 'hsl(' + hue + ', ' + saturation + '%, ' + startLightness + '%)';
+            const endColor = 'hsl(' + hue + ', ' + (saturation + 8) + '%, ' + endLightness + '%)';
+            const borderColorLightness = Math.max(58, endLightness - 6);
+            const borderColor = 'hsl(' + hue + ', ' + Math.min(65, saturation + 15) + '%, ' + borderColorLightness + '%)';
 
             const palette = {
                 background: 'linear-gradient(135deg, ' + startColor + ' 0%, ' + endColor + ' 100%)',
-                border: 'hsl(' + hue + ', 70%, 50%)',
+                border: borderColor,
                 text: '#0f172a'
             };
 
@@ -392,6 +401,63 @@ include '../Modulos/head.php';
             mainElement.style.setProperty('--calendar-event-background', palette.background);
             mainElement.style.setProperty('--calendar-event-border', palette.border);
             mainElement.style.setProperty('--calendar-event-text', palette.text);
+        }
+
+        function getStartOfToday() {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            return today;
+        }
+
+        function isFormaPagoRegistrada(formaPago) {
+            if (formaPago === null || formaPago === undefined) {
+                return false;
+            }
+
+            const normalized = String(formaPago).trim().toLowerCase();
+            if (normalized === '' || normalized === 'pendiente' || normalized === 'sin pago' || normalized === 'no pagado') {
+                return false;
+            }
+
+            return true;
+        }
+
+        function isEventEditableByPolicy(estatus, startTimestamp, endTimestamp, formaPago, todayTimestamp) {
+            if (typeof startTimestamp !== 'number' || Number.isNaN(startTimestamp)) {
+                return false;
+            }
+
+            if (typeof endTimestamp !== 'number' || Number.isNaN(endTimestamp)) {
+                return false;
+            }
+
+            if (estatus === 'Finalizada' || estatus === 'Cancelada') {
+                return false;
+            }
+
+            if (isFormaPagoRegistrada(formaPago)) {
+                return false;
+            }
+
+            const effectiveToday = typeof todayTimestamp === 'number' && !Number.isNaN(todayTimestamp)
+                ? todayTimestamp
+                : getStartOfToday().getTime();
+
+            return startTimestamp >= effectiveToday;
+        }
+
+        function updatePastEventsToggleLabel() {
+            if (!togglePastEventsButton) {
+                return;
+            }
+
+            if (showPastEvents) {
+                togglePastEventsButton.textContent = 'Ocultar citas pasadas';
+                togglePastEventsButton.setAttribute('aria-pressed', 'true');
+            } else {
+                togglePastEventsButton.textContent = 'Mostrar citas pasadas';
+                togglePastEventsButton.setAttribute('aria-pressed', 'false');
+            }
         }
 
         const dateFormatter = new Intl.DateTimeFormat('es-MX', {
@@ -913,7 +979,8 @@ include '../Modulos/head.php';
                             throw new Error('Formato de datos inesperado');
                         }
 
-                        const now = new Date();
+                        const todayStart = getStartOfToday();
+                        const todayTimestamp = todayStart.getTime();
 
                         const events = payload.data.map(function (item) {
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
@@ -931,8 +998,16 @@ include '../Modulos/head.php';
                             const endDate = item.termina ? new Date(item.termina) : null;
                             const hasValidStart = startDate instanceof Date && !Number.isNaN(startDate.getTime());
                             const hasValidEnd = endDate instanceof Date && !Number.isNaN(endDate.getTime());
-                            const isStatusEditable = item.estatus !== 'Finalizada' && item.estatus !== 'Cancelada';
-                            const isEditable = Boolean(hasValidStart && hasValidEnd && isStatusEditable && endDate.getTime() >= now.getTime());
+                            const rawStartTimestamp = hasValidStart ? startDate.getTime() : NaN;
+                            const rawEndTimestamp = hasValidEnd ? endDate.getTime() : NaN;
+                            const isPaid = isFormaPagoRegistrada(item.forma_pago);
+                            const isEditable = Boolean(
+                                hasValidStart &&
+                                hasValidEnd &&
+                                isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)
+                            );
+                            const startTimestamp = Number.isNaN(rawStartTimestamp) ? null : rawStartTimestamp;
+                            const endTimestamp = Number.isNaN(rawEndTimestamp) ? null : rawEndTimestamp;
 
                             if (isEditable) {
                                 classNames.push('calendar-event-editable');
@@ -958,13 +1033,27 @@ include '../Modulos/head.php';
                                     termina: item.termina,
                                     psicologoColor: palette,
                                     psicologoId: item.psicologo_id || null,
-                                    isEditable: isEditable
+                                    isEditable: isEditable,
+                                    isPaid: isPaid,
+                                    startTimestamp: startTimestamp,
+                                    endTimestamp: endTimestamp
                                 }
                             };
                         });
 
+                        const filteredEvents = showPastEvents
+                            ? events
+                            : events.filter(function (event) {
+                                if (!event || !event.extendedProps) {
+                                    return false;
+                                }
+
+                                const startTimestamp = event.extendedProps.startTimestamp;
+                                return typeof startTimestamp === 'number' && startTimestamp >= todayTimestamp;
+                            });
+
                         hideAlert();
-                        successCallback(events);
+                        successCallback(filteredEvents);
                     })
                     .catch(function (error) {
                         console.error(error);
@@ -976,13 +1065,16 @@ include '../Modulos/head.php';
             },
             eventAllow: function (dropInfo, draggedEvent) {
                 const props = draggedEvent.extendedProps || {};
-                if (!props.isEditable) {
+                if (!props.isEditable || props.isPaid) {
                     return false;
                 }
 
-                const now = new Date();
-                const minAllowed = new Date(now.getTime() - 60 * 1000);
-                return dropInfo.start >= minAllowed;
+                if (!(dropInfo.start instanceof Date) || Number.isNaN(dropInfo.start.getTime())) {
+                    return false;
+                }
+
+                const todayTimestamp = getStartOfToday().getTime();
+                return dropInfo.start.getTime() >= todayTimestamp;
             },
             eventContent: function (arg) {
                 const content = document.createElement('div');
@@ -1066,24 +1158,63 @@ include '../Modulos/head.php';
                             throw new Error(data.error);
                         }
 
-                        const endDate = event.end
-                            ? event.end.getTime()
-                            : event.start.getTime() + 60 * 60 * 1000;
                         const props = event.extendedProps || {};
-                        const stillEditable = props.estatus !== 'Finalizada'
-                            && props.estatus !== 'Cancelada'
-                            && endDate >= Date.now();
+                        const startTimestampValue = event.start instanceof Date && !Number.isNaN(event.start.getTime())
+                            ? event.start.getTime()
+                            : null;
+                        let endTimestampValue = null;
+
+                        if (event.end instanceof Date && !Number.isNaN(event.end.getTime())) {
+                            endTimestampValue = event.end.getTime();
+                        } else if (typeof startTimestampValue === 'number') {
+                            endTimestampValue = startTimestampValue + 60 * 60 * 1000;
+                        }
+
+                        const todayTimestamp = getStartOfToday().getTime();
+                        const stillEditable = isEventEditableByPolicy(
+                            props.estatus,
+                            startTimestampValue,
+                            endTimestampValue,
+                            props.forma_pago,
+                            todayTimestamp
+                        );
 
                         if (event.start) {
                             event.setExtendedProp('programado', event.start.toISOString());
                         }
                         if (event.end) {
                             event.setExtendedProp('termina', event.end.toISOString());
+                        } else if (typeof endTimestampValue === 'number') {
+                            const provisionalEnd = new Date(endTimestampValue);
+                            event.setExtendedProp('termina', provisionalEnd.toISOString());
+                        } else {
+                            event.setExtendedProp('termina', null);
                         }
 
+                        const normalizedStartTimestamp = typeof startTimestampValue === 'number' ? startTimestampValue : null;
+                        const normalizedEndTimestamp = typeof endTimestampValue === 'number' ? endTimestampValue : null;
+
+                        event.setExtendedProp('startTimestamp', normalizedStartTimestamp);
+                        event.setExtendedProp('endTimestamp', normalizedEndTimestamp);
                         event.setExtendedProp('isEditable', stillEditable);
                         event.setProp('startEditable', stillEditable);
                         event.setProp('durationEditable', false);
+
+                        if (props && typeof props === 'object') {
+                            props.startTimestamp = normalizedStartTimestamp;
+                            props.endTimestamp = normalizedEndTimestamp;
+                            props.isEditable = stillEditable;
+                            if (event.start) {
+                                props.programado = event.start.toISOString();
+                            }
+                            if (event.end) {
+                                props.termina = event.end.toISOString();
+                            } else if (typeof endTimestampValue === 'number') {
+                                props.termina = new Date(endTimestampValue).toISOString();
+                            } else {
+                                props.termina = null;
+                            }
+                        }
 
                         const currentClassNames = event.classNames ? event.classNames.slice() : [];
                         const editableIndex = currentClassNames.indexOf('calendar-event-editable');
@@ -1160,6 +1291,16 @@ include '../Modulos/head.php';
                 }
 
                 resetAvailabilityUI();
+                calendar.refetchEvents();
+            });
+        }
+
+        if (togglePastEventsButton) {
+            updatePastEventsToggleLabel();
+
+            togglePastEventsButton.addEventListener('click', function () {
+                showPastEvents = !showPastEvents;
+                updatePastEventsToggleLabel();
                 calendar.refetchEvents();
             });
         }
