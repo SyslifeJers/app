@@ -12,9 +12,10 @@ $pass = $_POST['pass'];
 $telefono = $_POST['telefono'];
 $correo = $_POST['correo'];
 $IdRol = $_POST['editRol'];
+$colorId = isset($_POST['color_id']) && $_POST['color_id'] !== '' ? (int) $_POST['color_id'] : 0;
 
-$stmt = $conn->prepare("UPDATE Usuarios SET name = ?, user = ?, pass = ?, telefono = ?, correo = ?, IdRol = ? WHERE id = ?");
-$stmt->bind_param("sssssii", $name, $user, $pass, $telefono, $correo, $IdRol, $id);
+$stmt = $conn->prepare("UPDATE Usuarios SET name = ?, user = ?, pass = ?, telefono = ?, correo = ?, IdRol = ?, color_id = NULLIF(?, 0) WHERE id = ?");
+$stmt->bind_param("sssssiii", $name, $user, $pass, $telefono, $correo, $IdRol, $colorId, $id);
 $success = $stmt->execute();
 
 if ($success) {

@@ -124,6 +124,12 @@ if ($rolUsuario === 2) {
                         <select class="form-select" id="editRol" name="editRol" required>
                         </select>
                     </div>
+                    <div class="mb-3">
+                        <label for="editColor" class="form-label">Color</label>
+                        <select class="form-select" id="editColor" name="color_id">
+                            <option value="">Sin color asignado</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
@@ -177,6 +183,12 @@ if ($rolUsuario === 2) {
                             <!-- Las opciones se llenarán dinámicamente desde la base de datos -->
                         </select>
                     </div>
+                    <div class="mb-3">
+                        <label for="color_id" class="form-label">Color</label>
+                        <select class="form-select" id="color_id" name="color_id">
+                            <option value="">Sin color asignado</option>
+                        </select>
+                    </div>
 
                 </div>
                 <div class="modal-footer">
@@ -202,6 +214,7 @@ include '../Modulos/footer.php';
             dataType: 'json',
             success: function (data) {
                 var $select = $('#IdRol');
+                $select.empty();
                 $.each(data, function (index, value) {
                     $select.append($('<option>', {
                         value: value.id,
@@ -209,6 +222,7 @@ include '../Modulos/footer.php';
                     }));
                 });
                 var $select2 = $('#editRol');
+                $select2.empty();
                 $.each(data, function (index, value) {
                     $select2.append($('<option>', {
                         value: value.id,
@@ -229,6 +243,38 @@ include '../Modulos/footer.php';
             }
         });
 
+        $.ajax({
+            url: '../getColores.php',
+            type: 'GET',
+            dataType: 'json',
+            success: function (data) {
+                var $colorSelect = $('#color_id');
+                var $editColorSelect = $('#editColor');
+
+                $colorSelect.empty().append($('<option>', {
+                    value: '',
+                    text: 'Sin color asignado'
+                }));
+
+                $editColorSelect.empty().append($('<option>', {
+                    value: '',
+                    text: 'Sin color asignado'
+                }));
+
+                $.each(data, function (index, value) {
+                    var option = $('<option>', {
+                        value: value.id,
+                        text: value.nombre + ' (' + value.codigo_hex + ')'
+                    });
+                    $colorSelect.append(option.clone());
+                    $editColorSelect.append(option);
+                });
+            },
+            error: function () {
+                alert('Error al obtener los colores disponibles');
+            }
+        });
+
     });
     function editUser(id) {
         fetch(`getUser.php?id=${id}`)
@@ -241,6 +287,12 @@ include '../Modulos/footer.php';
                 document.getElementById('editTelefono').value = data.telefono;
                 document.getElementById('editCorreo').value = data.correo;
                 document.getElementById('editRol').value = data.IdRol;
+                var editColorSelect = document.getElementById('editColor');
+                if (data.color_id === null || data.color_id === undefined) {
+                    editColorSelect.value = '';
+                } else {
+                    editColorSelect.value = String(data.color_id);
+                }
                 new bootstrap.Modal(document.getElementById('editModal')).show();
             });
     }

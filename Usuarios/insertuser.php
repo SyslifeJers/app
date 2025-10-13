@@ -7,6 +7,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $telefono = $_POST['telefono'];
     $correo = $_POST['correo'];
     $IdRol = $_POST['IdRol'];
+    $colorId = isset($_POST['color_id']) && $_POST['color_id'] !== '' ? (int) $_POST['color_id'] : 0;
 
     // Validar la contraseña (mínimo 6 caracteres)
     if (strlen($pass) < 6) {
@@ -17,8 +18,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn = conectar();
 
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, ?)");
-    $stmt->bind_param("sssssi", $name, $user, $pass, $telefono, $correo, $IdRol);
+    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, IdRol, color_id) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, ?, NULLIF(?, 0))");
+    $stmt->bind_param("sssssii", $name, $user, $pass, $telefono, $correo, $IdRol, $colorId);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {

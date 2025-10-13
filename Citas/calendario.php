@@ -414,12 +414,108 @@ include '../Modulos/head.php';
             return trimmed !== '' ? trimmed : 'Sin registro';
         }
 
-        function computePsychologistPalette(name) {
-            const key = getPsychologistDisplayName(name);
-            if (psychologistColorCache[key]) {
-                return psychologistColorCache[key];
+        function normalizeHexColor(value) {
+            if (typeof value !== 'string') {
+                return null;
             }
 
+            const trimmed = value.trim();
+            if (trimmed === '') {
+                return null;
+            }
+
+            const prefixed = trimmed.startsWith('#') ? trimmed : ('#' + trimmed);
+            const match = /^#([0-9a-fA-F]{6})$/.exec(prefixed);
+
+            if (!match) {
+                return null;
+            }
+
+            return '#' + match[1].toUpperCase();
+        }
+
+        function hexToRgb(hex) {
+            const normalized = normalizeHexColor(hex);
+            if (!normalized) {
+                return null;
+            }
+
+            const value = normalized.slice(1);
+            const r = Number.parseInt(value.slice(0, 2), 16);
+            const g = Number.parseInt(value.slice(2, 4), 16);
+            const b = Number.parseInt(value.slice(4, 6), 16);
+
+            if (Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+                return null;
+            }
+
+            return { r: r, g: g, b: b };
+        }
+
+        function rgbToHex(r, g, b) {
+            function clamp(value) {
+                return Math.max(0, Math.min(255, Math.round(value)));
+            }
+
+            return '#' + [clamp(r), clamp(g), clamp(b)]
+                .map(function (channel) {
+                    return channel.toString(16).padStart(2, '0');
+                })
+                .join('')
+                .toUpperCase();
+        }
+
+        function adjustHexColor(hex, amount) {
+            const rgb = hexToRgb(hex);
+            if (!rgb) {
+                return null;
+            }
+
+            const clampedAmount = Math.max(-1, Math.min(1, amount));
+            const lighten = clampedAmount >= 0;
+            const factor = Math.abs(clampedAmount);
+
+            function blend(channel) {
+                if (lighten) {
+                    return channel + (255 - channel) * factor;
+                }
+
+                return channel * (1 - factor);
+            }
+
+            return rgbToHex(blend(rgb.r), blend(rgb.g), blend(rgb.b));
+        }
+
+        function getContrastingTextColor(hex) {
+            const rgb = hexToRgb(hex);
+            if (!rgb) {
+                return '#0f172a';
+            }
+
+            const luminance = (0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b) / 255;
+            return luminance > 0.6 ? '#0f172a' : '#f8fafc';
+        }
+
+        function createPaletteFromHex(hex) {
+            const normalized = normalizeHexColor(hex);
+            if (!normalized) {
+                return null;
+            }
+
+            const lighter = adjustHexColor(normalized, 0.35) || normalized;
+            const darker = adjustHexColor(normalized, -0.2) || normalized;
+            const border = adjustHexColor(normalized, -0.35) || darker;
+            const textColor = getContrastingTextColor(normalized);
+
+            return {
+                base: normalized,
+                background: 'linear-gradient(135deg, ' + lighter + ' 0%, ' + darker + ' 100%)',
+                border: border,
+                text: textColor
+            };
+        }
+
+        function createPaletteFromNameKey(key) {
             let hash = 0;
             for (let index = 0; index < key.length; index++) {
                 hash = key.charCodeAt(index) + ((hash << 5) - hash);
@@ -437,13 +533,27 @@ include '../Modulos/head.php';
             const borderColorLightness = Math.max(58, endLightness - 6);
             const borderColor = 'hsl(' + hue + ', ' + Math.min(65, saturation + 15) + '%, ' + borderColorLightness + '%)';
 
-            const palette = {
+            return {
+                base: startColor,
                 background: 'linear-gradient(135deg, ' + startColor + ' 0%, ' + endColor + ' 100%)',
                 border: borderColor,
                 text: '#0f172a'
             };
+        }
 
-            psychologistColorCache[key] = palette;
+        function computePsychologistPalette(name, baseColor) {
+            const displayName = getPsychologistDisplayName(name);
+            const normalizedBase = normalizeHexColor(baseColor);
+            const cacheKey = normalizedBase ? displayName + '|' + normalizedBase : displayName;
+
+            if (psychologistColorCache[cacheKey]) {
+                return psychologistColorCache[cacheKey];
+            }
+
+            const paletteFromBase = normalizedBase ? createPaletteFromHex(normalizedBase) : null;
+            const palette = paletteFromBase || createPaletteFromNameKey(displayName);
+
+            psychologistColorCache[cacheKey] = palette;
             return palette;
         }
 
@@ -542,7 +652,8 @@ include '../Modulos/head.php';
                     return;
                 }
 
-                const palette = event.extendedProps.psicologoColor || computePsychologistPalette(displayName);
+                const palette = event.extendedProps.psicologoColor ||
+                    computePsychologistPalette(displayName, event.extendedProps.psicologoColorHex);
                 psychologistMap.set(displayName, palette);
             });
 
@@ -566,7 +677,8 @@ include '../Modulos/head.php';
                     badge.style.background = palette.background;
                     badge.style.color = palette.text;
                     badge.style.borderColor = palette.border;
-                    badge.style.setProperty('--psychologist-badge-color', palette.border);
+                    const legendAccent = palette.base || palette.border;
+                    badge.style.setProperty('--psychologist-badge-color', legendAccent);
                     fragment.appendChild(badge);
                 });
 
@@ -1107,7 +1219,8 @@ include '../Modulos/head.php';
                                 classNames.push(statusStyle.eventClass);
                             }
 
-                            const palette = computePsychologistPalette(psicologo);
+                            const psicologoColorHex = normalizeHexColor(item.psicologo_color);
+                            const palette = computePsychologistPalette(psicologo, psicologoColorHex);
                             const startDate = item.programado ? new Date(item.programado) : null;
                             const endDate = item.termina ? new Date(item.termina) : null;
                             const hasValidStart = startDate instanceof Date && !Number.isNaN(startDate.getTime());
@@ -1146,6 +1259,7 @@ include '../Modulos/head.php';
                                     programado: item.programado,
                                     termina: item.termina,
                                     psicologoColor: palette,
+                                    psicologoColorHex: psicologoColorHex,
                                     psicologoId: item.psicologo_id || null,
                                     isEditable: isEditable,
                                     isPaid: isPaid,
@@ -1220,12 +1334,22 @@ include '../Modulos/head.php';
                 }
 
                 const props = info.event.extendedProps || {};
+                const harness = info.el.closest('.fc-daygrid-event-harness, .fc-timegrid-event-harness');
+                if (harness) {
+                    harness.style.backgroundColor = '';
+                    harness.style.marginTop = '0px';
+                }
+
                 if (props.estatus === 'Cancelada') {
                     return;
                 }
 
                 const mainElement = info.el.querySelector('.fc-event-main');
                 applyPaletteToMainElement(mainElement, props.psicologoColor);
+
+                if (props.psicologoColor && props.psicologoColor.base && harness) {
+                    harness.style.backgroundColor = props.psicologoColor.base;
+                }
             },
             eventClick: function (info) {
                 info.jsEvent.preventDefault();

@@ -99,10 +99,12 @@ $sql = 'SELECT ci.id,
                ci.IdUsuario AS psicologo_id,
                n.name  AS paciente,
                us.name AS psicologo,
+               co.codigo_hex AS psicologo_color,
                es.name AS estatus
         FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
+        LEFT JOIN colores co ON co.id = us.color_id
         INNER JOIN Estatus es ON es.id = ci.Estatus';
 
 if ($condiciones !== []) {
@@ -143,6 +145,7 @@ while ($fila = $resultado->fetch_assoc()) {
         'paciente' => $fila['paciente'],
         'psicologo' => $fila['psicologo'],
         'psicologo_id' => (int) $fila['psicologo_id'],
+        'psicologo_color' => $fila['psicologo_color'] ?? null,
         'programado' => $inicio->format(DateTime::ATOM),
         'termina' => $fin->format(DateTime::ATOM),
         'estatus' => $fila['estatus'],
