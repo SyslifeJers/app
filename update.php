@@ -27,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     // Constantes de rol
     $ROL_VENTAS = 1;
-    $ROL_COORDINADOR = 4;
+    $ROL_ADMIN = 3;
+    $ROL_COORDINADOR = 5;
 
     if ($rolUsuario === $ROL_VENTAS) {
         $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
@@ -121,7 +122,8 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     );
 
     // Si la actualización proviene de una solicitud, marcarla como atendida automáticamente
-    if (!empty($_POST['solicitudId']) && $rolUsuario === $ROL_COORDINADOR) {
+    // cuando la aprueba un coordinador o administrador
+    if (!empty($_POST['solicitudId']) && in_array($rolUsuario, [$ROL_COORDINADOR, $ROL_ADMIN], true)) {
         $solicitudId = (int) $_POST['solicitudId'];
         $stmtAtendida = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = IFNULL(comentarios, '') WHERE id = ?");
         $stmtAtendida->bind_param('isi', $idUsuario, $fechaActual, $solicitudId);
@@ -141,7 +143,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
 
     $_SESSION['reprogramacion_mensaje'] = 'Fecha de cita actualizada correctamente.';
     $_SESSION['reprogramacion_tipo'] = 'success';
-    header('Location: index.php');
+
+    $redirectTo = isset($_POST['redirect_to']) ? trim((string) $_POST['redirect_to']) : '';
+    $redirectInvalido = $redirectTo === ''
+        || strpos($redirectTo, '://') !== false
+        || strpos($redirectTo, '//') === 0
+        || strpos($redirectTo, "\n") !== false
+        || strpos($redirectTo, "\r") !== false
+        || strpos($redirectTo, '..') !== false;
+
+    if ($redirectInvalido) {
+        $redirectTo = 'index.php';
+    }
+
+    header('Location: ' . $redirectTo);
     exit;
 }
 

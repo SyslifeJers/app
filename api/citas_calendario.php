@@ -91,6 +91,28 @@ if ($psicologoId !== null) {
     $parametros[] = $psicologoId;
 }
 
+$tablaSolicitudesExiste = false;
+if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")) {
+    $tablaSolicitudesExiste = $resultadoTabla->num_rows > 0;
+    $resultadoTabla->free();
+}
+
+$selectSolicitudesReprogramacion = $tablaSolicitudesExiste
+    ? ",\n               COALESCE(sr_reprogramacion.solicitudesPendientes, 0) AS solicitudesReprogramacionPendientes"
+    : ",\n               0 AS solicitudesReprogramacionPendientes";
+
+$selectSolicitudesCancelacion = $tablaSolicitudesExiste
+    ? ",\n               COALESCE(sr_cancelacion.solicitudesPendientesCancelacion, 0) AS solicitudesCancelacionPendientes"
+    : ",\n               0 AS solicitudesCancelacionPendientes";
+
+$joinSolicitudesReprogramacion = $tablaSolicitudesExiste
+    ? "\n        LEFT JOIN (\n            SELECT cita_id, COUNT(*) AS solicitudesPendientes\n            FROM SolicitudReprogramacion\n            WHERE estatus = 'pendiente' AND tipo = 'reprogramacion'\n            GROUP BY cita_id\n        ) sr_reprogramacion ON sr_reprogramacion.cita_id = ci.id"
+    : '';
+
+$joinSolicitudesCancelacion = $tablaSolicitudesExiste
+    ? "\n        LEFT JOIN (\n            SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n            FROM SolicitudReprogramacion\n            WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n            GROUP BY cita_id\n        ) sr_cancelacion ON sr_cancelacion.cita_id = ci.id"
+    : '';
+
 $sql = 'SELECT ci.id,
                ci.Programado,
                ci.Tipo,
@@ -100,12 +122,16 @@ $sql = 'SELECT ci.id,
                n.name  AS paciente,
                us.name AS psicologo,
                co.codigo_hex AS psicologo_color,
-               es.name AS estatus
-        FROM Cita ci
+               es.name AS estatus'
+        . $selectSolicitudesReprogramacion
+        . $selectSolicitudesCancelacion .
+        '\n        FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         LEFT JOIN colores co ON co.id = us.color_id
-        INNER JOIN Estatus es ON es.id = ci.Estatus';
+        INNER JOIN Estatus es ON es.id = ci.Estatus'
+        . $joinSolicitudesReprogramacion
+        . $joinSolicitudesCancelacion;
 
 if ($condiciones !== []) {
     $sql .= ' WHERE ' . implode(' AND ', $condiciones);
@@ -152,6 +178,12 @@ while ($fila = $resultado->fetch_assoc()) {
         'tipo' => $fila['Tipo'],
         'forma_pago' => $fila['FormaPago'],
         'costo' => $fila['costo'] !== null ? (float) $fila['costo'] : null,
+        'solicitudesReprogramacionPendientes' => isset($fila['solicitudesReprogramacionPendientes'])
+            ? (int) $fila['solicitudesReprogramacionPendientes']
+            : 0,
+        'solicitudesCancelacionPendientes' => isset($fila['solicitudesCancelacionPendientes'])
+            ? (int) $fila['solicitudesCancelacionPendientes']
+            : 0,
     ];
 }
 
