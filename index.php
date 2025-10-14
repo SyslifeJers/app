@@ -19,7 +19,7 @@ if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")
 
 $pendientesReprogramacion = 0;
 $pendientesCancelacion = 0;
-if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
+if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
     if ($stmtPendientes = $conn->prepare("SELECT tipo, COUNT(*) FROM SolicitudReprogramacion WHERE estatus = 'pendiente' GROUP BY tipo")) {
         $stmtPendientes->execute();
         $stmtPendientes->bind_result($tipoSolicitud, $totalPendiente);
@@ -81,6 +81,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 4])) {
 $selectSolicitudesCancelacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_cancelacion.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
 $joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
 
+
 $zonaHoraria = new DateTimeZone('America/Mexico_City');
 $fechaActual = new DateTime('now', $zonaHoraria);
 $fechaInicioSeleccionada = $_GET['fecha_inicio'] ?? $fechaActual->format('Y-m-d');
@@ -106,7 +107,10 @@ if ($fechaInicioSeleccionada > $fechaFinSeleccionada) {
   $fechaFinSeleccionada = $fechaTemporal;
 }
 
-$sql = "SELECT ci.id,
+
+            $fecha = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
+
+          $sql = "SELECT ci.id,
        ci.IdNino AS paciente_id,
        n.name,
        us.name as Psicologo,
@@ -126,6 +130,7 @@ INNER JOIN Estatus es ON es.id = ci.Estatus
 " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
 WHERE DATE(ci.Programado) BETWEEN ? AND ?
 ORDER BY ci.Programado ASC;";
+
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
@@ -542,4 +547,4 @@ include 'Modulos/footer.php';
 ?>
 
 <script>window.ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;</script>
-<script src="assets/js/citas.js"></script>
+<script src="assets/js/citas.js?v=<?php echo time(); ?>"></script>
