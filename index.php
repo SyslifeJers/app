@@ -107,8 +107,39 @@ if ($fechaInicioSeleccionada > $fechaFinSeleccionada) {
   $fechaFinSeleccionada = $fechaTemporal;
 }
 
+$estatusSeleccionado = null;
+if (isset($_GET['estatus'])) {
+  $estatusParam = trim((string) $_GET['estatus']);
+  if ($estatusParam !== '' && ctype_digit($estatusParam)) {
+    $estatusSeleccionado = (int) $estatusParam;
+  }
+}
+
+$estatusDisponibles = [];
+if ($resultadoEstatus = $conn->query("SELECT id, name FROM Estatus ORDER BY name")) {
+  while ($estatus = $resultadoEstatus->fetch_assoc()) {
+    $estatusDisponibles[] = [
+      'id' => (int) $estatus['id'],
+      'name' => (string) $estatus['name']
+    ];
+  }
+  $resultadoEstatus->free();
+}
+
+if ($estatusSeleccionado === null) {
+  $fechaInicioSeleccionada = $fechaActual->format('Y-m-d');
+  $fechaFinSeleccionada = $fechaActual->format('Y-m-d');
+}
+
 
             $fecha = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
+
+          $whereConditions = ["DATE(ci.Programado) BETWEEN ? AND ?"];
+          if ($estatusSeleccionado === null) {
+            $whereConditions[] = "(ci.FormaPago IS NULL OR ci.FormaPago = '')";
+          } else {
+            $whereConditions[] = "ci.Estatus = ?";
+          }
 
           $sql = "SELECT ci.id,
        ci.IdNino AS paciente_id,
@@ -128,7 +159,7 @@ INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
 INNER JOIN Estatus es ON es.id = ci.Estatus
 " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
-WHERE DATE(ci.Programado) BETWEEN ? AND ?
+WHERE " . implode("\n  AND ", $whereConditions) . "
 ORDER BY ci.Programado ASC;";
 
 
@@ -136,7 +167,11 @@ $stmt = $conn->prepare($sql);
 if (!$stmt) {
   throw new RuntimeException('Error al preparar la consulta de citas: ' . $conn->error);
 }
-$stmt->bind_param('ss', $fechaInicioSeleccionada, $fechaFinSeleccionada);
+if ($estatusSeleccionado === null) {
+  $stmt->bind_param('ss', $fechaInicioSeleccionada, $fechaFinSeleccionada);
+} else {
+  $stmt->bind_param('ssi', $fechaInicioSeleccionada, $fechaFinSeleccionada, $estatusSeleccionado);
+}
 $stmt->execute();
 $result = $stmt->get_result();
           $hoy = $fechaActual->format('Y-m-d');
@@ -156,6 +191,17 @@ $result = $stmt->get_result();
           echo '<div class="col">';
           echo '<label class="form-label" for="fecha_fin">Fecha fin</label>';
           echo '<input type="date" id="fecha_fin" name="fecha_fin" class="form-control" value="' . htmlspecialchars($fechaFinSeleccionada, ENT_QUOTES, 'UTF-8') . '">';
+          echo '</div>';
+          echo '<div class="col">';
+          echo '<label class="form-label" for="estatus">Estatus</label>';
+          echo '<select id="estatus" name="estatus" class="form-select">';
+          $selectedPendientes = $estatusSeleccionado === null ? ' selected' : '';
+          echo '<option value=""' . $selectedPendientes . '>Pendientes de pago de hoy</option>';
+          foreach ($estatusDisponibles as $estatus) {
+            $selected = ($estatusSeleccionado !== null && $estatusSeleccionado === $estatus['id']) ? ' selected' : '';
+            echo '<option value="' . (int) $estatus['id'] . '"' . $selected . '>' . htmlspecialchars($estatus['name'], ENT_QUOTES, 'UTF-8') . '</option>';
+          }
+          echo '</select>';
           echo '</div>';
           echo '<div class="col">';
           echo '<button type="submit" class="btn btn-primary">Filtrar</button>';
