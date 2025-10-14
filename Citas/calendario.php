@@ -348,7 +348,22 @@ include '../Modulos/head.php';
 
                         <dt class="col-sm-3">Costo</dt>
                         <dd class="col-sm-9" id="detail-costo"></dd>
+
+                        <dt class="col-sm-3">Solicitudes de reprogramación</dt>
+                        <dd class="col-sm-9" id="detail-reprogram-requests"></dd>
+
+                        <dt class="col-sm-3">Solicitudes de cancelación</dt>
+                        <dd class="col-sm-9" id="detail-cancel-requests"></dd>
                     </dl>
+
+                    <div class="mt-4 d-none" id="detail-actions-section">
+                        <h6 class="fw-semibold mb-2">Acciones</h6>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button type="button" class="btn btn-primary" id="detail-reprogram-button">Reprogramar</button>
+                            <button type="button" class="btn btn-danger" id="detail-cancel-button">Cancelar</button>
+                        </div>
+                        <p class="text-muted small mb-0 mt-2 d-none" id="detail-actions-helper"></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -372,8 +387,39 @@ include '../Modulos/head.php';
     </div>
 </div>
 
+<div class="modal fade" id="updateModal" tabindex="-1" aria-labelledby="updateModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="updateModalLabel">Actualizar Fecha de Cita</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="updateForm" method="post" action="../update.php">
+                    <input type="hidden" name="redirect_to" value="Citas/calendario.php">
+                    <div class="mb-3">
+                        <label for="citaId" class="form-label">ID de la Cita</label>
+                        <input type="text" class="form-control" id="citaId" name="citaId" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="fechaProgramada" class="form-label">Nueva Fecha Programada</label>
+                        <input type="datetime-local" class="form-control" id="fechaProgramada" name="fechaProgramada" required step="3600">
+                    </div>
+                    <div class="alert alert-info" id="solicitudAviso" style="display:none;">
+                        La solicitud será enviada al coordinador para su aprobación.
+                    </div>
+                    <button type="submit" class="btn btn-primary" id="updateSubmitButton">Actualizar</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales-all.global.min.js"></script>
+<script>
+    window.ES_VENTAS = <?php echo ($rol === 1) ? 'true' : 'false'; ?>;
+</script>
 <script>
     document.addEventListener('DOMContentLoaded', function () {
         const calendarElement = document.getElementById('calendar');
@@ -1039,6 +1085,13 @@ include '../Modulos/head.php';
         const detailRow = document.getElementById('detail-row');
         const instructions = document.getElementById('calendar-instructions');
         const alertBox = document.getElementById('calendar-alert');
+        const detailActionsSection = document.getElementById('detail-actions-section');
+        const detailActionsHelper = document.getElementById('detail-actions-helper');
+        const detailReprogramButton = document.getElementById('detail-reprogram-button');
+        const detailCancelButton = document.getElementById('detail-cancel-button');
+        const ES_VENTAS_ROLE = Boolean(window.ES_VENTAS);
+        const reprogramModalElement = document.getElementById('updateModal');
+        let reprogramModalInstance = null;
 
         function showAlert(message, type) {
             if (!alertBox) {
@@ -1096,8 +1149,146 @@ include '../Modulos/head.php';
             estatus: document.getElementById('detail-estatus'),
             tipo: document.getElementById('detail-tipo'),
             forma: document.getElementById('detail-forma'),
-            costo: document.getElementById('detail-costo')
+            costo: document.getElementById('detail-costo'),
+            reprogramRequests: document.getElementById('detail-reprogram-requests'),
+            cancelRequests: document.getElementById('detail-cancel-requests')
         };
+
+        function normalizeCount(value) {
+            const parsed = Number.parseInt(value, 10);
+            if (Number.isNaN(parsed) || parsed < 0) {
+                return 0;
+            }
+            return parsed;
+        }
+
+        function setRequestBadge(container, count) {
+            if (!container) {
+                return;
+            }
+
+            container.innerHTML = '';
+            const badge = document.createElement('span');
+            badge.className = count > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
+            badge.textContent = count > 0 ? 'Pendiente (' + count + ')' : 'Sin solicitudes';
+            container.appendChild(badge);
+        }
+
+        function ensureReprogramModalInstance() {
+            if (!reprogramModalElement) {
+                return null;
+            }
+
+            if (!reprogramModalInstance) {
+                if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+                    return null;
+                }
+                reprogramModalInstance = new bootstrap.Modal(reprogramModalElement);
+            }
+
+            return reprogramModalInstance;
+        }
+
+        function openReprogramModalForCita(citaId) {
+            const modal = ensureReprogramModalInstance();
+            if (!modal) {
+                showAlert('No se pudo abrir la ventana de reprogramación.', 'danger');
+                return;
+            }
+
+            const citaIdInput = document.getElementById('citaId');
+            const fechaProgramadaInput = document.getElementById('fechaProgramada');
+            const modalTitle = document.getElementById('updateModalLabel');
+            const submitButton = document.getElementById('updateSubmitButton');
+            const aviso = document.getElementById('solicitudAviso');
+
+            if (citaIdInput) {
+                citaIdInput.value = citaId || '';
+            }
+
+            if (fechaProgramadaInput) {
+                fechaProgramadaInput.value = '';
+            }
+
+            if (modalTitle) {
+                modalTitle.textContent = ES_VENTAS_ROLE ? 'Solicitar reprogramación' : 'Actualizar Fecha de Cita';
+            }
+
+            if (submitButton) {
+                submitButton.textContent = ES_VENTAS_ROLE ? 'Enviar solicitud' : 'Actualizar';
+            }
+
+            if (aviso) {
+                aviso.style.display = ES_VENTAS_ROLE ? 'block' : 'none';
+            }
+
+            modal.show();
+        }
+
+        function sendCancelRequest(citaId) {
+            if (!citaId) {
+                return;
+            }
+
+            if (!ES_VENTAS_ROLE) {
+                const confirmed = window.confirm('¿Deseas cancelar esta cita?');
+                if (!confirmed) {
+                    return;
+                }
+            }
+
+            const params = new URLSearchParams();
+            params.append('citaId', citaId);
+            params.append('estatus', '1');
+
+            fetch('../cancelar.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: params.toString()
+            })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        throw new Error('Respuesta no válida del servidor.');
+                    });
+                })
+                .then(function (data) {
+                    if (!data || data.success !== true) {
+                        throw new Error(data && data.message ? data.message : 'No se pudo procesar la cancelación.');
+                    }
+
+                    window.location.reload();
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No se pudo procesar la cancelación. Intenta nuevamente.', 'danger');
+                });
+        }
+
+        if (detailReprogramButton) {
+            detailReprogramButton.addEventListener('click', function () {
+                if (!selectedEventId) {
+                    showAlert('Selecciona una cita para reprogramar.', 'warning');
+                    return;
+                }
+
+                openReprogramModalForCita(selectedEventId);
+            });
+        }
+
+        if (detailCancelButton) {
+            detailCancelButton.addEventListener('click', function () {
+                if (!selectedEventId) {
+                    showAlert('Selecciona una cita para cancelar.', 'warning');
+                    return;
+                }
+
+                sendCancelRequest(selectedEventId);
+            });
+        }
 
         function updateDetail(event) {
             if (!event) {
@@ -1105,6 +1296,9 @@ include '../Modulos/head.php';
             }
 
             const props = event.extendedProps || {};
+
+            const reprogramCount = normalizeCount(props.solicitudesReprogramacionPendientes);
+            const cancelCount = normalizeCount(props.solicitudesCancelacionPendientes);
 
             if (detailFields.paciente) {
                 detailFields.paciente.textContent = props.paciente || 'Sin registro';
@@ -1147,12 +1341,74 @@ include '../Modulos/head.php';
                     : 'No especificado';
             }
 
+            if (detailFields.reprogramRequests) {
+                setRequestBadge(detailFields.reprogramRequests, reprogramCount);
+            }
+
+            if (detailFields.cancelRequests) {
+                setRequestBadge(detailFields.cancelRequests, cancelCount);
+            }
+
             if (detailFields.inicio) {
                 detailFields.inicio.textContent = event.start ? dateFormatter.format(event.start) : 'Sin registro';
             }
 
             if (detailFields.fin) {
                 detailFields.fin.textContent = event.end ? dateFormatter.format(event.end) : 'Sin registro';
+            }
+
+            const helperMessages = [];
+            const estatusValue = typeof props.estatus === 'string' ? props.estatus.trim().toLowerCase() : '';
+            const isCancelled = estatusValue === 'cancelada';
+
+            if (detailActionsSection) {
+                detailActionsSection.classList.remove('d-none');
+            }
+
+            if (detailReprogramButton) {
+                detailReprogramButton.dataset.citaId = event.id || '';
+                if (ES_VENTAS_ROLE) {
+                    detailReprogramButton.textContent = reprogramCount > 0 ? 'Solicitud pendiente' : 'Solicitar reprogramación';
+                    detailReprogramButton.disabled = reprogramCount > 0 || !event.id || isCancelled;
+                    if (reprogramCount > 0) {
+                        helperMessages.push('Ya existe una solicitud de reprogramación pendiente.');
+                    }
+                } else {
+                    detailReprogramButton.textContent = 'Reprogramar';
+                    const editable = Boolean(props.isEditable) && !isCancelled;
+                    detailReprogramButton.disabled = !editable || !event.id;
+                    if (!editable) {
+                        helperMessages.push('La cita no se puede reprogramar desde el calendario.');
+                    }
+                }
+            }
+
+            if (detailCancelButton) {
+                detailCancelButton.dataset.citaId = event.id || '';
+                if (ES_VENTAS_ROLE) {
+                    detailCancelButton.textContent = cancelCount > 0 ? 'Cancelación pendiente' : 'Solicitar cancelación';
+                    detailCancelButton.disabled = cancelCount > 0 || !event.id || isCancelled;
+                    if (cancelCount > 0) {
+                        helperMessages.push('Ya existe una solicitud de cancelación pendiente.');
+                    }
+                } else {
+                    detailCancelButton.textContent = 'Cancelar';
+                    detailCancelButton.disabled = !event.id || isCancelled;
+                }
+            }
+
+            if (isCancelled) {
+                helperMessages.push('La cita ya está cancelada.');
+            }
+
+            if (detailActionsHelper) {
+                if (helperMessages.length > 0) {
+                    detailActionsHelper.textContent = helperMessages.join(' ');
+                    detailActionsHelper.classList.remove('d-none');
+                } else {
+                    detailActionsHelper.textContent = '';
+                    detailActionsHelper.classList.add('d-none');
+                }
             }
         }
 
@@ -1240,6 +1496,11 @@ include '../Modulos/head.php';
                                 classNames.push('calendar-event-editable');
                             }
 
+                            const pendingReprogram = Number.parseInt(item.solicitudesReprogramacionPendientes, 10);
+                            const pendingCancel = Number.parseInt(item.solicitudesCancelacionPendientes, 10);
+                            const normalizedPendingReprogram = Number.isNaN(pendingReprogram) ? 0 : pendingReprogram;
+                            const normalizedPendingCancel = Number.isNaN(pendingCancel) ? 0 : pendingCancel;
+
                             return {
                                 id: item.id,
                                 title: title,
@@ -1264,7 +1525,9 @@ include '../Modulos/head.php';
                                     isEditable: isEditable,
                                     isPaid: isPaid,
                                     startTimestamp: startTimestamp,
-                                    endTimestamp: endTimestamp
+                                    endTimestamp: endTimestamp,
+                                    solicitudesReprogramacionPendientes: normalizedPendingReprogram,
+                                    solicitudesCancelacionPendientes: normalizedPendingCancel
                                 }
                             };
                         });
