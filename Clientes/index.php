@@ -88,12 +88,9 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                                    c.`fecha` as Registro
                        FROM `Clientes` c";
 
-                if ($ocultarNinosInactivos) {
-                    $sql .= " INNER JOIN `nino` n ON n.`idtutor` = c.`id` AND n.`activo` = 1";
-                } else {
-                    $sql .= " LEFT JOIN `nino` n ON n.`idtutor` = c.`id`";
-                }
 
+                    $sql .= " LEFT JOIN `nino` n ON n.`idtutor` = c.`id`";
+      
                 // Definir el filtro
                 $filter = isset($_POST['filter']) ? $_POST['filter'] : 'all';
 
@@ -106,12 +103,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
 
                 $sql .= " GROUP BY c.`id`";
 
-                if ($ocultarNinosInactivos) {
-                    $sql .= " HAVING COUNT(n.`id`) > 0";
-                }
-
                 $sql .= " ORDER BY c.`activo` DESC, c.`id` DESC";
-
                 $result = $conn->query($sql);
 
                 if ($result === false) {
