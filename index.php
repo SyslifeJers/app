@@ -78,8 +78,35 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
           $selectSolicitudesReprogramacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_reprogramacion.solicitudesPendientes, 0) as solicitudesReprogramacionPendientes" : ",\n       0 as solicitudesReprogramacionPendientes";
           $joinSolicitudesReprogramacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientes\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'reprogramacion'\n    GROUP BY cita_id\n) sr_reprogramacion ON sr_reprogramacion.cita_id = ci.id\n" : '';
 
-          $selectSolicitudesCancelacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_cancelacion.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
-          $joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
+$selectSolicitudesCancelacion = $tablaSolicitudesExiste ? ",\n       COALESCE(sr_cancelacion.solicitudesPendientesCancelacion, 0) as solicitudesCancelacionPendientes" : ",\n       0 as solicitudesCancelacionPendientes";
+$joinSolicitudesCancelacion = $tablaSolicitudesExiste ? "LEFT JOIN (\n    SELECT cita_id, COUNT(*) AS solicitudesPendientesCancelacion\n    FROM SolicitudReprogramacion\n    WHERE estatus = 'pendiente' AND tipo = 'cancelacion'\n    GROUP BY cita_id\n) sr_cancelacion ON sr_cancelacion.cita_id = ci.id\n" : '';
+
+
+$zonaHoraria = new DateTimeZone('America/Mexico_City');
+$fechaActual = new DateTime('now', $zonaHoraria);
+$fechaInicioSeleccionada = $_GET['fecha_inicio'] ?? $fechaActual->format('Y-m-d');
+$fechaFinSeleccionada = $_GET['fecha_fin'] ?? $fechaActual->format('Y-m-d');
+
+$fechaInicioValidada = DateTime::createFromFormat('Y-m-d', (string) $fechaInicioSeleccionada, $zonaHoraria);
+if ($fechaInicioValidada === false || $fechaInicioValidada->format('Y-m-d') !== (string) $fechaInicioSeleccionada) {
+  $fechaInicioSeleccionada = $fechaActual->format('Y-m-d');
+} else {
+  $fechaInicioSeleccionada = $fechaInicioValidada->format('Y-m-d');
+}
+
+$fechaFinValidada = DateTime::createFromFormat('Y-m-d', (string) $fechaFinSeleccionada, $zonaHoraria);
+if ($fechaFinValidada === false || $fechaFinValidada->format('Y-m-d') !== (string) $fechaFinSeleccionada) {
+  $fechaFinSeleccionada = $fechaActual->format('Y-m-d');
+} else {
+  $fechaFinSeleccionada = $fechaFinValidada->format('Y-m-d');
+}
+
+if ($fechaInicioSeleccionada > $fechaFinSeleccionada) {
+  $fechaTemporal = $fechaInicioSeleccionada;
+  $fechaInicioSeleccionada = $fechaFinSeleccionada;
+  $fechaFinSeleccionada = $fechaTemporal;
+}
+
 
             $fecha = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
 
@@ -96,19 +123,46 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
        ci.FormaPago,
        es.name as Estatus,
        COALESCE(n.saldo_paquete, 0) AS saldo_paquete" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
-        FROM Cita ci
-        INNER JOIN nino n ON n.id = ci.IdNino
-        INNER JOIN Usuarios us ON us.id = ci.IdUsuario
-        INNER JOIN Estatus es ON es.id = ci.Estatus
-        " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
-        WHERE (ci.Estatus = 2 OR ci.Estatus = 3)
-          AND DATE(ci.Programado) = '" . $fecha . "'
-        ORDER BY ci.Programado ASC;";
+FROM Cita ci
+INNER JOIN nino n ON n.id = ci.IdNino
+INNER JOIN Usuarios us ON us.id = ci.IdUsuario
+INNER JOIN Estatus es ON es.id = ci.Estatus
+" . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
+WHERE DATE(ci.Programado) BETWEEN ? AND ?
+ORDER BY ci.Programado ASC;";
 
-          $result = $conn->query($sql);
-          date_default_timezone_set('America/Mexico_City');
-          $hoy = date('Y-m-d');
+
+$stmt = $conn->prepare($sql);
+if (!$stmt) {
+  throw new RuntimeException('Error al preparar la consulta de citas: ' . $conn->error);
+}
+$stmt->bind_param('ss', $fechaInicioSeleccionada, $fechaFinSeleccionada);
+$stmt->execute();
+$result = $stmt->get_result();
+          $hoy = $fechaActual->format('Y-m-d');
           // Verificar si hay resultados y generar la tabla HTML
+          echo '<div class="d-flex flex-column flex-md-row justify-content-md-between align-items-md-center mb-3">';
+          if ($fechaInicioSeleccionada === $fechaFinSeleccionada) {
+            $descripcionRango = 'Citas para ' . htmlspecialchars($fechaInicioSeleccionada, ENT_QUOTES, 'UTF-8');
+          } else {
+            $descripcionRango = 'Citas del ' . htmlspecialchars($fechaInicioSeleccionada, ENT_QUOTES, 'UTF-8') . ' al ' . htmlspecialchars($fechaFinSeleccionada, ENT_QUOTES, 'UTF-8');
+          }
+          echo '<h5 class="mb-2 mb-md-0">' . $descripcionRango . '</h5>';
+          echo '<form method="get" class="row row-cols-1 row-cols-sm-auto g-2 align-items-end">';
+          echo '<div class="col">';
+          echo '<label class="form-label" for="fecha_inicio">Fecha inicio</label>';
+          echo '<input type="date" id="fecha_inicio" name="fecha_inicio" class="form-control" value="' . htmlspecialchars($fechaInicioSeleccionada, ENT_QUOTES, 'UTF-8') . '">';
+          echo '</div>';
+          echo '<div class="col">';
+          echo '<label class="form-label" for="fecha_fin">Fecha fin</label>';
+          echo '<input type="date" id="fecha_fin" name="fecha_fin" class="form-control" value="' . htmlspecialchars($fechaFinSeleccionada, ENT_QUOTES, 'UTF-8') . '">';
+          echo '</div>';
+          echo '<div class="col">';
+          echo '<button type="submit" class="btn btn-primary">Filtrar</button>';
+          echo '</div>';
+          echo '</form>';
+          echo '</div>';
+
           if ($result->num_rows > 0) {
             echo "<table border='1' id=\"myTable\" >
             <thead>
@@ -163,7 +217,7 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
                 if ($estatusActual !== 'finalizada' ) {
                   $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
                 }
-              } elseif (date('Y-m-d', strtotime($row['Fecha'])) == $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
+              } elseif ($row['Fecha'] === $hoy && ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado')) {
                 $pagoInfo = [
                   'idCita' => (int) $row['id'],
                   'estatus' => 4,
@@ -197,10 +251,11 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
             }
             echo "</tbody></table>";
           } else {
-            echo "0 resultados";
+            echo "<p class='mb-0'>No se encontraron citas para la fecha seleccionada.</p>";
           }
 
           // Cerrar conexión
+          $stmt->close();
           $conn->close();
           ?>
         </div>
