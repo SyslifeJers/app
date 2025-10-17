@@ -64,6 +64,11 @@ if (empty($condiciones)) {
     $condiciones[] = '1 = 1';
 }
 
+$selectPagos = ",
+        COALESCE(pagos.detalle, '') AS pagos_detalle";
+
+$joinPagos = "        LEFT JOIN (\n            SELECT\n                cp.cita_id,\n                GROUP_CONCAT(CONCAT_WS(CHAR(31), cp.metodo, cp.monto) SEPARATOR CHAR(30)) AS detalle\n            FROM CitaPagos cp\n            GROUP BY cp.cita_id\n        ) pagos ON pagos.cita_id = ci.id\n";
+
 $sql = "SELECT ci.id,
         n.name,
         us.name as Psicologo,
@@ -73,12 +78,14 @@ $sql = "SELECT ci.id,
         TIME(ci.Programado) as Hora,
         ci.Tipo,
         es.name as Estatus,
-        ci.FormaPago
+        ci.FormaPago" . $selectPagos . "
         FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         INNER JOIN Estatus es ON es.id = ci.Estatus
-        WHERE " . implode(' AND ', $condiciones) . '
+" . $joinPagos .
+'        WHERE ' . implode(' AND ', $condiciones) . '
+        GROUP BY ci.id, n.name, us.name, ci.costo, ci.Programado, ci.Tipo, es.name, ci.FormaPago
         ORDER BY ci.Programado ASC';
 
 $stmt = $conn->prepare($sql);
@@ -145,26 +152,64 @@ if ($stmt === false) {
                                         <th>Costo</th>
                                         <th>Hora</th>
                                         <th>Tipo</th>
-                                        <th>Estatus</th> 
+                                        <th>Pagos registrados</th>
+                                        <th>Estatus</th>
                                         <th>Forma de pago</th>
-                                     
+
                                     </tr>
                                 </thead>
                                 <tbody>";
                         // Recorrer los resultados y mostrarlos en la tabla
                         while ($row = $result->fetch_assoc())  {
-                            echo "<tr>
-                                    <td>{$row['Fecha']}</td>
-                                    <td>{$row['id']}</td>
-                                    <td>{$row['name']}</td>
-                                    <td>{$row['Psicologo']}</td>
-                                    <td>{$row['costo']}</td>
-                                    <td>{$row['Hora']}</td>
-                                    <td>{$row['Tipo']}</td>
-                                    <td>{$row['Estatus']}</td>
-                                    <td>{$row['FormaPago']}</td>
+                            $pagosDetalleRaw = isset($row['pagos_detalle']) ? (string) $row['pagos_detalle'] : '';
+                            $pagosRegistrados = [];
 
-                                  </tr>";
+                            if ($pagosDetalleRaw !== '') {
+                                $registros = explode(chr(30), $pagosDetalleRaw);
+                                foreach ($registros as $registro) {
+                                    if ($registro === '') {
+                                        continue;
+                                    }
+
+                                    $partes = explode(chr(31), $registro);
+                                    $metodo = isset($partes[0]) ? trim((string) $partes[0]) : '';
+                                    if ($metodo === '') {
+                                        continue;
+                                    }
+
+                                    $monto = isset($partes[1]) ? (float) $partes[1] : 0.0;
+                                    $pagosRegistrados[] = htmlspecialchars($metodo, ENT_QUOTES, 'UTF-8') . ' $' . number_format($monto, 2, '.', ',');
+                                }
+                            }
+
+                            $pagosDetalleHtml = $pagosRegistrados === []
+                                ? htmlspecialchars('Sin registros', ENT_QUOTES, 'UTF-8')
+                                : implode('<br>', $pagosRegistrados);
+
+                            $fecha = htmlspecialchars($row['Fecha'], ENT_QUOTES, 'UTF-8');
+                            $id = htmlspecialchars($row['id'], ENT_QUOTES, 'UTF-8');
+                            $nombre = htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8');
+                            $psicologo = htmlspecialchars($row['Psicologo'], ENT_QUOTES, 'UTF-8');
+                            $costo = htmlspecialchars($row['costo'], ENT_QUOTES, 'UTF-8');
+                            $hora = htmlspecialchars($row['Hora'], ENT_QUOTES, 'UTF-8');
+                            $tipo = htmlspecialchars($row['Tipo'], ENT_QUOTES, 'UTF-8');
+                            $estatus = htmlspecialchars($row['Estatus'], ENT_QUOTES, 'UTF-8');
+                            $formaPago = isset($row['FormaPago']) && $row['FormaPago'] !== ''
+                                ? htmlspecialchars($row['FormaPago'], ENT_QUOTES, 'UTF-8')
+                                : htmlspecialchars('Sin registrar', ENT_QUOTES, 'UTF-8');
+
+                            echo '<tr>';
+                            echo '<td>' . $fecha . '</td>';
+                            echo '<td>' . $id . '</td>';
+                            echo '<td>' . $nombre . '</td>';
+                            echo '<td>' . $psicologo . '</td>';
+                            echo '<td>' . $costo . '</td>';
+                            echo '<td>' . $hora . '</td>';
+                            echo '<td>' . $tipo . '</td>';
+                            echo '<td>' . $pagosDetalleHtml . '</td>';
+                            echo '<td>' . $estatus . '</td>';
+                            echo '<td>' . $formaPago . '</td>';
+                            echo '</tr>';
                         }
                         echo "</tbody></table>";
                     } elseif ($errorConsulta !== '') {
