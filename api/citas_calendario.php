@@ -45,6 +45,15 @@ function normalizarParametro(?string $valor, DateTimeZone $tz, string $campo): ?
     return $fecha->format('Y-m-d H:i:s');
 }
 
+function toLowerUtf8(string $valor): string
+{
+    if (function_exists('mb_strtolower')) {
+        return mb_strtolower($valor, 'UTF-8');
+    }
+
+    return strtolower($valor);
+}
+
 $conn = conectar();
 
 $fechaInicio = normalizarParametro($_GET['start'] ?? null, $timezone, 'start');
@@ -64,6 +73,15 @@ if (array_key_exists('psicologo_id', $_GET)) {
         if ($psicologoId <= 0) {
             jsonResponse(400, ['error' => 'El parámetro psicologo_id debe ser mayor que cero.']);
         }
+    }
+}
+
+$pacienteFiltro = null;
+if (array_key_exists('paciente', $_GET)) {
+    $pacienteRaw = trim((string) $_GET['paciente']);
+
+    if ($pacienteRaw !== '') {
+        $pacienteFiltro = toLowerUtf8($pacienteRaw);
     }
 }
 
@@ -89,6 +107,12 @@ if ($psicologoId !== null) {
     $condiciones[] = 'ci.IdUsuario = ?';
     $tipos .= 'i';
     $parametros[] = $psicologoId;
+}
+
+if ($pacienteFiltro !== null) {
+    $condiciones[] = 'LOWER(n.name) LIKE ?';
+    $tipos .= 's';
+    $parametros[] = '%' . $pacienteFiltro . '%';
 }
 
 $tablaSolicitudesExiste = false;

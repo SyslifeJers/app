@@ -273,17 +273,21 @@ include '../Modulos/head.php';
             <div class="card">
                 <div class="card-body calendar-wrapper">
                     <div class="row g-3 align-items-end mb-4 calendar-filter-row">
-                        <div class="col-md-4 col-sm-6">
+                        <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12">
                             <label class="form-label" for="calendar-filter-psychologist">Filtrar por psicóloga</label>
                             <select id="calendar-filter-psychologist" class="form-select">
                                 <option value="">Todas las psicólogas</option>
                             </select>
                         </div>
-                        <div class="col-md-4 col-sm-6">
+                        <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12">
+                            <label class="form-label" for="calendar-filter-patient">Buscar paciente</label>
+                            <input type="text" id="calendar-filter-patient" class="form-control" placeholder="Nombre del paciente">
+                        </div>
+                        <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12">
                             <label class="form-label" for="available-date">Fecha para consultar disponibilidad</label>
                             <input type="date" id="available-date" class="form-control">
                         </div>
-                        <div class="col-md-4 col-sm-12 d-flex flex-wrap gap-2">
+                        <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12 d-flex flex-wrap gap-2">
                             <button type="button" class="btn btn-primary flex-grow-1 flex-sm-grow-0" id="show-available-slots">
                                 Ver horas disponibles
                             </button>
@@ -439,8 +443,10 @@ include '../Modulos/head.php';
         let alertTimeoutId = null;
         let selectedEventId = null;
         let showPastEvents = false;
+        let patientSearchDebounceId = null;
 
         const psychologistSelect = document.getElementById('calendar-filter-psychologist');
+        const patientSearchInput = document.getElementById('calendar-filter-patient');
         const availableDateInput = document.getElementById('available-date');
         const showAvailableSlotsButton = document.getElementById('show-available-slots');
         const clearFiltersButton = document.getElementById('clear-calendar-filters');
@@ -1447,6 +1453,17 @@ include '../Modulos/head.php';
                     params.append('psicologo_id', psychologistSelect.value);
                 }
 
+                if (patientSearchInput) {
+                    const rawPatientValue = patientSearchInput.value;
+                    if (typeof rawPatientValue === 'string') {
+                        const trimmedValue = rawPatientValue.trim();
+
+                        if (trimmedValue !== '') {
+                            params.append('paciente', trimmedValue);
+                        }
+                    }
+                }
+
                 fetch('../api/citas_calendario.php?' + params.toString(), {
                     credentials: 'same-origin'
                 })
@@ -1756,6 +1773,22 @@ include '../Modulos/head.php';
             });
         }
 
+        function triggerPatientSearchUpdate() {
+            if (patientSearchDebounceId !== null) {
+                window.clearTimeout(patientSearchDebounceId);
+            }
+
+            patientSearchDebounceId = window.setTimeout(function () {
+                patientSearchDebounceId = null;
+                calendar.refetchEvents();
+            }, 300);
+        }
+
+        if (patientSearchInput) {
+            patientSearchInput.addEventListener('input', triggerPatientSearchUpdate);
+            patientSearchInput.addEventListener('change', triggerPatientSearchUpdate);
+        }
+
         if (showAvailableSlotsButton) {
             showAvailableSlotsButton.addEventListener('click', function () {
                 if (!psychologistSelect || psychologistSelect.value === '') {
@@ -1790,6 +1823,15 @@ include '../Modulos/head.php';
 
                 if (availableDateInput) {
                     availableDateInput.value = '';
+                }
+
+                if (patientSearchInput) {
+                    patientSearchInput.value = '';
+                }
+
+                if (patientSearchDebounceId !== null) {
+                    window.clearTimeout(patientSearchDebounceId);
+                    patientSearchDebounceId = null;
                 }
 
                 resetAvailabilityUI();
