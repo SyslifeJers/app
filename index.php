@@ -515,6 +515,12 @@ $result = $stmt->get_result();
                             Usar saldo disponible
                         </button>
                     </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="imprimirTicket" checked>
+                        <label class="form-check-label" for="imprimirTicket">
+                            Imprimir ticket y agregar a la cola de impresión
+                        </label>
+                    </div>
                     <p class="fw-semibold mb-0" id="resumenPagos"></p>
                 </div>
                 <div class="modal-footer">
