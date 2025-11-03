@@ -63,6 +63,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     $usarSaldo = isset($_POST['usarSaldo']) ? ((int) $_POST['usarSaldo'] === 1) : false;
     $montoPago = isset($_POST['montoPago']) ? (float) $_POST['montoPago'] : 0.0;
+    $imprimirTicket = isset($_POST['imprimirTicket']) ? ((int) $_POST['imprimirTicket'] === 1) : false;
 
     if ($citaId <= 0 || $estatus <= 0) {
         finalizarRespuesta(false, 'La cita seleccionada no es válida.', 'danger');
@@ -130,6 +131,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $usaTransaccion = false;
     $detallesSaldo = [];
     $detallesPagos = [];
+    $ticketEncolado = false;
 
     if ($estatus === 4) {
         $usaTransaccion = true;
@@ -267,6 +269,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($pagosValidados as $pagoValidado) {
                 $detallesPagos[] = sprintf('%s $%s', $pagoValidado['metodo'], number_format($pagoValidado['monto'], 2));
             }
+
+            if ($imprimirTicket) {
+                $stmtAgregarTicket = $conn->prepare('INSERT INTO colaTickets (id_cita) VALUES (?)');
+                if (!$stmtAgregarTicket) {
+                    throw new Exception('No fue posible preparar la cola de impresión.');
+                }
+                $stmtAgregarTicket->bind_param('i', $citaId);
+                if (!$stmtAgregarTicket->execute()) {
+                    $stmtAgregarTicket->close();
+                    throw new Exception('No fue posible agregar el ticket a la cola de impresión.');
+                }
+                $stmtAgregarTicket->close();
+                $ticketEncolado = true;
+            }
         }
 
         if ($formaPago === null || $formaPago === '') {
@@ -372,6 +388,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if (!empty($detallesSaldo)) {
             $mensajePago .= ' ' . implode(' ', $detallesSaldo);
+        }
+        if ($ticketEncolado) {
+            $mensajePago .= ' Ticket agregado a la cola de impresión.';
         }
 
         $extra = [];

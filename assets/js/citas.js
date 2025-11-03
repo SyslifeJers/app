@@ -12,7 +12,8 @@ const pagoModalEstado = {
   psicologoNombre: '',
   tipo: '',
   programado: null,
-  mensajePago: ''
+  mensajePago: '',
+  imprimirTicket: true
 };
 const modalPagoElement = document.getElementById('ModalTipoPago');
 const tablaPagosBody = document.querySelector('#tablaPagos tbody');
@@ -23,6 +24,7 @@ const saldoActualLabel = document.getElementById('modalSaldoActual');
 const costoCitaLabel = document.getElementById('modalCostoCita');
 const pacienteLabel = document.getElementById('modalPacienteNombre');
 const alertaSaldoInsuficiente = document.getElementById('alertaSaldoInsuficiente');
+const imprimirTicketCheckbox = document.getElementById('imprimirTicket');
 const modalProximaCitaElement = document.getElementById('modalProximaCita');
 const alertaPagoExitoso = document.getElementById('alertaPagoExitoso');
 const proximaClienteInput = document.getElementById('proximaCliente');
@@ -378,6 +380,7 @@ function renderPagos() {
 if (modalPagoElement) {
   modalPagoElement.addEventListener('hidden.bs.modal', function () {
     pagoModalEstado.pagos = [];
+    pagoModalEstado.imprimirTicket = true;
     if (tablaPagosBody) {
       tablaPagosBody.innerHTML = '';
     }
@@ -390,6 +393,15 @@ if (modalPagoElement) {
     if (agregarPagoSaldoBtn) {
       agregarPagoSaldoBtn.removeAttribute('disabled');
     }
+    if (imprimirTicketCheckbox) {
+      imprimirTicketCheckbox.checked = true;
+    }
+  });
+}
+
+if (imprimirTicketCheckbox) {
+  imprimirTicketCheckbox.addEventListener('change', () => {
+    pagoModalEstado.imprimirTicket = Boolean(imprimirTicketCheckbox.checked);
   });
 }
 
@@ -426,11 +438,16 @@ function actualizarCitaPago(info) {
   pagoModalEstado.tipo = info.tipo || '';
   pagoModalEstado.programado = info.programado || null;
   pagoModalEstado.mensajePago = '';
+  pagoModalEstado.imprimirTicket = true;
 
   if (!pagoModalEstado.modal) {
     pagoModalEstado.modal = new bootstrap.Modal(modalPagoElement, {
       keyboard: false
     });
+  }
+
+  if (imprimirTicketCheckbox) {
+    imprimirTicketCheckbox.checked = true;
   }
 
   if (costoCitaLabel) {
@@ -539,6 +556,7 @@ function actualizarCitaPago(info) {
     }
     params.append('montoPago', totales.total.toFixed(2));
     params.append('pagos', JSON.stringify(pagosPayload));
+    params.append('imprimirTicket', pagoModalEstado.imprimirTicket ? '1' : '0');
 
     xhr.send(params.toString());
   };
