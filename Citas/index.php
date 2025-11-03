@@ -33,60 +33,70 @@ if ($statusSeleccionado !== '' && !in_array($statusSeleccionado, $estatusDisponi
 if ($fechaInicio && $fechaFin && $fechaInicio > $fechaFin) {
     [$fechaInicio, $fechaFin] = [$fechaFin, $fechaInicio];
 }
-
 $condiciones = [];
 $tipos = '';
 $parametros = [];
 
-if ($statusSeleccionado === '') {
+// Filtro de estatus
+if ($statusSeleccionado === '' || $statusSeleccionado === null) {
     $condiciones[] = 'ci.Estatus IN (1, 4)';
 }
 
-if ($fechaInicio !== '') {
-    $condiciones[] = 'DATE(ci.Programado) >= ?';
+// Fechas (usa límites para mantener el índice)
+if (!empty($fechaInicio)) {
+    $condiciones[] = 'ci.Programado >= ?';
     $tipos .= 's';
-    $parametros[] = $fechaInicio;
+    $parametros[] = $fechaInicio . ' 00:00:00';
 }
 
-if ($fechaFin !== '') {
-    $condiciones[] = 'DATE(ci.Programado) <= ?';
+if (!empty($fechaFin)) {
+    $condiciones[] = 'ci.Programado <= ?';
     $tipos .= 's';
-    $parametros[] = $fechaFin;
+    $parametros[] = $fechaFin . ' 23:59:59';
 }
 
-if ($statusSeleccionado !== '') {
+// Estatus específico
+if (!empty($statusSeleccionado)) {
     $condiciones[] = 'es.name = ?';
     $tipos .= 's';
     $parametros[] = $statusSeleccionado;
 }
 
+// Fallback
 if (empty($condiciones)) {
-    $condiciones[] = '1 = 1';
+    $condiciones[] = '1=1';
 }
 
-$selectPagos = ",
-        COALESCE(pagos.detalle, '') AS pagos_detalle";
+// Subconsulta de pagos segura y compatible
+$joinPagos = "LEFT JOIN (
+                 SELECT 
+                     cp.cita_id,
+                     GROUP_CONCAT(CONCAT(cp.metodo, ':', cp.monto) SEPARATOR '|') AS detalle
+                 FROM CitaPagos cp
+                 GROUP BY cp.cita_id
+              ) AS pagos ON pagos.cita_id = ci.id";
 
-$joinPagos = "        LEFT JOIN (\n            SELECT\n                cp.cita_id,\n                GROUP_CONCAT(CONCAT_WS(CHAR(31), cp.metodo, cp.monto) SEPARATOR CHAR(30)) AS detalle\n            FROM CitaPagos cp\n            GROUP BY cp.cita_id\n        ) pagos ON pagos.cita_id = ci.id\n";
-
-$sql = "SELECT ci.id,
-        n.name,
-        us.name as Psicologo,
-        ci.costo,
-        ci.Programado,
-        DATE(ci.Programado) as Fecha,
-        TIME(ci.Programado) as Hora,
-        ci.Tipo,
-        es.name as Estatus,
-        ci.FormaPago" . $selectPagos . "
+$sql = "SELECT
+            ci.id,
+            n.name,
+            us.name AS Psicologo,
+            ci.costo,
+            ci.Programado,
+            DATE(ci.Programado) AS Fecha,
+            TIME(ci.Programado) AS Hora,
+            ci.Tipo,
+            es.name AS Estatus,
+            ci.FormaPago,
+            COALESCE(pagos.detalle, '') AS pagos_detalle
         FROM Cita ci
-        INNER JOIN nino n ON n.id = ci.IdNino
+        INNER JOIN nino n      ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
-        INNER JOIN Estatus es ON es.id = ci.Estatus
-" . $joinPagos .
-'        WHERE ' . implode(' AND ', $condiciones) . '
-        GROUP BY ci.id, n.name, us.name, ci.costo, ci.Programado, ci.Tipo, es.name, ci.FormaPago
-        ORDER BY ci.Programado ASC';
+        INNER JOIN Estatus es  ON es.id = ci.Estatus
+        $joinPagos
+        WHERE " . implode(' AND ', $condiciones) . "
+        GROUP BY
+            ci.id, n.name, us.name, ci.costo, ci.Programado, ci.Tipo, es.name, ci.FormaPago, pagos.detalle
+        ORDER BY ci.Programado ASC";
 
 $stmt = $conn->prepare($sql);
 $errorConsulta = '';

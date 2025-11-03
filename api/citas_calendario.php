@@ -149,7 +149,7 @@ $sql = 'SELECT ci.id,
                es.name AS estatus'
         . $selectSolicitudesReprogramacion
         . $selectSolicitudesCancelacion .
-        '\n        FROM Cita ci
+        '       FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         LEFT JOIN colores co ON co.id = us.color_id

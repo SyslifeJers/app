@@ -19,7 +19,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn = conectar();
 
     // Verificar las credenciales del usuario
-    $stmt = $conn->prepare("SELECT id, pass, IdRol FROM Usuarios WHERE user = ?");
+    $stmt = $conn->prepare("SELECT id, pass, IdRol FROM Usuarios WHERE user = ? and activo = 1");
     $stmt->bind_param("s", $user);
     $stmt->execute();
     $stmt->store_result();

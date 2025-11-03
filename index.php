@@ -136,7 +136,7 @@ if ($estatusSeleccionado === null) {
 
           $whereConditions = ["DATE(ci.Programado) BETWEEN ? AND ?"];
           if ($estatusSeleccionado === null) {
-            $whereConditions[] = "(ci.FormaPago IS NULL OR ci.FormaPago = '')";
+            $whereConditions[] = "(ci.FormaPago IS NULL OR ci.FormaPago = '' OR ci.FormaPago like 'Paquete%')";
           } else {
             $whereConditions[] = "ci.Estatus = ?";
           }
@@ -161,7 +161,6 @@ INNER JOIN Estatus es ON es.id = ci.Estatus
 " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
 WHERE " . implode("\n  AND ", $whereConditions) . "
 ORDER BY ci.Programado ASC;";
-
 
 $stmt = $conn->prepare($sql);
 if (!$stmt) {
@@ -242,6 +241,7 @@ $result = $stmt->get_result();
               $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
               $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
+              if ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado') {
               if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
                 $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
               } else {
@@ -257,6 +257,7 @@ $result = $stmt->get_result();
               } else {
                 $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
               }
+            }
 
               if ($formaPagoRegistrada !== '') {
                 $botones[] = '<span class="badge bg-success">Pago registrado</span>';
