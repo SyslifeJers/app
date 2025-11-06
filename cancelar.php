@@ -16,6 +16,7 @@ $idUsuario = $_SESSION['id'] ?? null;
 $rolUsuario = $_SESSION['rol'] ?? null;
 
 $ROL_VENTAS = 1;
+$ROL_RECEPCION = 2;
 $ROL_ADMIN = 3;
 $ROL_COORDINADOR = 5;
 $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
@@ -84,15 +85,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         finalizarRespuesta(false, 'No fue posible localizar la cita seleccionada.', 'danger');
     }
 
+    $tablaSolicitudesDisponible = false;
+    $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
+    if ($tablaSolicitudes instanceof mysqli_result) {
+        $tablaSolicitudesDisponible = $tablaSolicitudes->num_rows > 0;
+        $tablaSolicitudes->free();
+    }
+
     if ($rolUsuario === $ROL_VENTAS && $estatus === 1) {
-        $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
-        if (!($tablaSolicitudes instanceof mysqli_result) || $tablaSolicitudes->num_rows === 0) {
-            if ($tablaSolicitudes instanceof mysqli_result) {
-                $tablaSolicitudes->free();
-            }
+        if (!$tablaSolicitudesDisponible) {
             finalizarRespuesta(false, 'El módulo de solicitudes no está disponible. Contacta al administrador.', 'danger');
         }
-        $tablaSolicitudes->free();
 
         $totalPendientes = 0;
         if ($stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
@@ -132,6 +135,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $detallesSaldo = [];
     $detallesPagos = [];
     $ticketEncolado = false;
+
+    $isRecepcion = $rolUsuario === $ROL_RECEPCION;
+    $shouldRegistrarAutoCancelacion = false;
+    if ($tablaSolicitudesDisponible && $isRecepcion && $estatus === 1 && $idUsuario !== null) {
+        $totalPendientesRecepcion = 0;
+        if ($stmtPendientesRecepcion = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
+            $stmtPendientesRecepcion->bind_param('i', $citaId);
+            $stmtPendientesRecepcion->execute();
+            $stmtPendientesRecepcion->bind_result($totalPendientesRecepcion);
+            $stmtPendientesRecepcion->fetch();
+            $stmtPendientesRecepcion->close();
+        }
+        $shouldRegistrarAutoCancelacion = $totalPendientesRecepcion === 0;
+    }
 
     if ($estatus === 4) {
         $usaTransaccion = true;
@@ -343,11 +360,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         (string) $citaId
     );
 
-    if ($estatus === 1) {
-        $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
-        if ($tablaSolicitudes instanceof mysqli_result && $tablaSolicitudes->num_rows > 0) {
-            $tablaSolicitudes->free();
+    if ($shouldRegistrarAutoCancelacion) {
+        $stmtRegistrarCancelacion = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, tipo, solicitado_por, comentarios, fecha_solicitud, aprobado_por, fecha_respuesta) VALUES (?, ?, ?, 'aprobada', 'cancelacion', ?, NULL, ?, ?, ?)");
+        if ($stmtRegistrarCancelacion) {
+            $stmtRegistrarCancelacion->bind_param('issisis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual, $idUsuario, $fechaActual);
+            if ($stmtRegistrarCancelacion->execute()) {
+                $solicitudCancelacionId = $conn->insert_id;
+                registrarLog(
+                    $conn,
+                    $idUsuario,
+                    'citas',
+                    'registrar_cancelacion_recepcion',
+                    sprintf('La recepción registró automáticamente la cancelación de la cita #%d programada el %s.', $citaId, $fechaProgramadaActual),
+                    'SolicitudReprogramacion',
+                    (string) $solicitudCancelacionId
+                );
+            }
+            $stmtRegistrarCancelacion->close();
+        }
+    }
 
+    if ($estatus === 1) {
+        if ($tablaSolicitudesDisponible) {
             $comentarioCancelacion = 'Solicitud cerrada automáticamente por cancelación de la cita.';
             $stmtCancelar = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'rechazada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
             $stmtCancelar->bind_param('isssi', $idUsuario, $fechaActual, $comentarioCancelacion, $comentarioCancelacion, $citaId);
@@ -360,8 +394,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtCerrarCancelacion->execute();
                 $stmtCerrarCancelacion->close();
             }
-        } elseif ($tablaSolicitudes instanceof mysqli_result) {
-            $tablaSolicitudes->free();
         }
 
         $tablaSolicitudesCancelacion = $conn->query("SHOW TABLES LIKE 'SolicitudCancelacion'");
