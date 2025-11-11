@@ -13,6 +13,117 @@ function normalizarFecha($fecha)
     return ($dt && $dt->format('Y-m-d') === $fecha) ? $fecha : '';
 }
 
+if (!isset($_SESSION)) {
+    session_start();
+}
+
+$mensajeCorteCaja = null;
+if (isset($_SESSION['corte_caja_mensaje']) && is_array($_SESSION['corte_caja_mensaje'])) {
+    $mensajeCorteCaja = $_SESSION['corte_caja_mensaje'];
+    unset($_SESSION['corte_caja_mensaje']);
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'registrar_efectivo') {
+    $fechaEfectivo = normalizarFecha($_POST['fecha_efectivo'] ?? '');
+    $montoInicialRaw = str_replace(',', '', (string) ($_POST['efectivo_inicial'] ?? ''));
+    $montoInicialRaw = trim($montoInicialRaw);
+
+    $filtroFechaInicioPost = normalizarFecha($_POST['filtro_fecha_inicio'] ?? '');
+    $filtroFechaFinPost = normalizarFecha($_POST['filtro_fecha_fin'] ?? '');
+    $filtroStatusPost = isset($_POST['filtro_status']) ? trim((string) $_POST['filtro_status']) : '';
+
+    $redirectParams = [];
+    if ($filtroFechaInicioPost !== '') {
+        $redirectParams['fecha_inicio'] = $filtroFechaInicioPost;
+    }
+    if ($filtroFechaFinPost !== '') {
+        $redirectParams['fecha_fin'] = $filtroFechaFinPost;
+    }
+    if ($filtroStatusPost !== '') {
+        $redirectParams['status'] = $filtroStatusPost;
+    }
+    if (!empty($redirectParams)) {
+        $redirectParams['aplicar_filtros'] = '1';
+    }
+
+    $mensaje = ['tipo' => 'danger', 'texto' => 'Ocurrió un error desconocido al registrar el efectivo inicial.'];
+
+    if ($fechaEfectivo === '') {
+        $mensaje['texto'] = 'Selecciona una fecha válida para registrar el efectivo inicial.';
+    } elseif ($montoInicialRaw === '' || !is_numeric($montoInicialRaw)) {
+        $mensaje['texto'] = 'Ingresa un monto válido para el efectivo inicial.';
+    } else {
+        $montoInicial = (float) $montoInicialRaw;
+        if ($montoInicial < 0) {
+            $mensaje['texto'] = 'El efectivo inicial no puede ser negativo.';
+        } else {
+            $stmtExiste = $conn->prepare('SELECT efectivo_inicial FROM CorteCaja WHERE fecha = ? LIMIT 1');
+            if ($stmtExiste instanceof mysqli_stmt) {
+                $stmtExiste->bind_param('s', $fechaEfectivo);
+                $stmtExiste->execute();
+                $stmtExiste->store_result();
+
+                if ($stmtExiste->num_rows > 0) {
+                    $stmtExiste->bind_result($efectivoRegistrado);
+                    $stmtExiste->fetch();
+                    $mensaje['texto'] = sprintf(
+                        'El efectivo inicial para %s ya fue registrado por $%s.',
+                        DateTime::createFromFormat('Y-m-d', $fechaEfectivo)->format('d/m/Y'),
+                        number_format((float) $efectivoRegistrado, 2)
+                    );
+                } else {
+                    $stmtExiste->close();
+                    $idUsuario = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
+
+                    if ($idUsuario > 0) {
+                        $stmtInsert = $conn->prepare('INSERT INTO CorteCaja (fecha, efectivo_inicial, registrado_por) VALUES (?, ?, ?)');
+                        if ($stmtInsert instanceof mysqli_stmt) {
+                            $stmtInsert->bind_param('sdi', $fechaEfectivo, $montoInicial, $idUsuario);
+                        }
+                    } else {
+                        $stmtInsert = $conn->prepare('INSERT INTO CorteCaja (fecha, efectivo_inicial, registrado_por) VALUES (?, ?, NULL)');
+                        if ($stmtInsert instanceof mysqli_stmt) {
+                            $stmtInsert->bind_param('sd', $fechaEfectivo, $montoInicial);
+                        }
+                    }
+
+                    if (isset($stmtInsert) && $stmtInsert instanceof mysqli_stmt) {
+                        if ($stmtInsert->execute()) {
+                            $mensaje = [
+                                'tipo' => 'success',
+                                'texto' => sprintf(
+                                    'Se registró $%s como efectivo inicial para %s.',
+                                    number_format($montoInicial, 2),
+                                    DateTime::createFromFormat('Y-m-d', $fechaEfectivo)->format('d/m/Y')
+                                ),
+                            ];
+                        } else {
+                            $mensaje['texto'] = 'No se pudo guardar el efectivo inicial. Inténtalo nuevamente.';
+                        }
+                        $stmtInsert->close();
+                    } else {
+                        $mensaje['texto'] = 'No se pudo preparar el registro del efectivo inicial.';
+                    }
+                }
+
+                $stmtExiste->close();
+            } else {
+                $mensaje['texto'] = 'No se pudo verificar si ya existe un registro de efectivo inicial.';
+            }
+        }
+    }
+
+    $_SESSION['corte_caja_mensaje'] = $mensaje;
+
+    $redirectUrl = 'index.php';
+    if (!empty($redirectParams)) {
+        $redirectUrl .= '?' . http_build_query($redirectParams);
+    }
+
+    header('Location: ' . $redirectUrl);
+    exit;
+}
+
 date_default_timezone_set('America/Mexico_City');
 $hoy = date('Y-m-d');
 $aplicarFiltros = isset($_GET['aplicar_filtros']);
@@ -33,6 +144,28 @@ if ($statusSeleccionado !== '' && !in_array($statusSeleccionado, $estatusDisponi
 if ($fechaInicio && $fechaFin && $fechaInicio > $fechaFin) {
     [$fechaInicio, $fechaFin] = [$fechaFin, $fechaInicio];
 }
+$fechaEfectivoActual = $fechaInicio !== '' ? $fechaInicio : $hoy;
+$efectivoInicialRegistrado = null;
+$efectivoInicialBloqueado = false;
+
+$stmtEfectivoActual = $conn->prepare('SELECT efectivo_inicial FROM CorteCaja WHERE fecha = ? LIMIT 1');
+if ($stmtEfectivoActual instanceof mysqli_stmt) {
+    $stmtEfectivoActual->bind_param('s', $fechaEfectivoActual);
+    $stmtEfectivoActual->execute();
+    $stmtEfectivoActual->bind_result($efectivoInicialConsulta);
+    if ($stmtEfectivoActual->fetch()) {
+        $efectivoInicialRegistrado = (float) $efectivoInicialConsulta;
+        $efectivoInicialBloqueado = true;
+    }
+    $stmtEfectivoActual->close();
+}
+$efectivoInicialRegistradoTexto = $efectivoInicialRegistrado !== null
+    ? '$' . number_format($efectivoInicialRegistrado, 2)
+    : null;
+$fechaEfectivoActualTexto = DateTime::createFromFormat('Y-m-d', $fechaEfectivoActual);
+$fechaEfectivoActualTexto = $fechaEfectivoActualTexto
+    ? $fechaEfectivoActualTexto->format('d/m/Y')
+    : $fechaEfectivoActual;
 $condiciones = [];
 $tipos = '';
 $parametros = [];
@@ -124,6 +257,58 @@ if ($stmt === false) {
                 </a>
             </div>
             <div class="card-body">
+                <?php if ($mensajeCorteCaja !== null): ?>
+                    <div class="alert alert-<?php echo htmlspecialchars($mensajeCorteCaja['tipo'], ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
+                        <?php echo htmlspecialchars($mensajeCorteCaja['texto'], ENT_QUOTES, 'UTF-8'); ?>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
+                    </div>
+                <?php endif; ?>
+
+                <div class="border rounded-3 p-3 mb-4 bg-light">
+                    <h5 class="mb-3">Efectivo inicial del corte</h5>
+                    <form method="post" class="row g-3 align-items-end">
+                        <input type="hidden" name="accion" value="registrar_efectivo">
+                        <input type="hidden" name="fecha_efectivo" value="<?php echo htmlspecialchars($fechaEfectivoActual, ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="filtro_fecha_inicio" value="<?php echo htmlspecialchars($fechaInicio, ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="filtro_fecha_fin" value="<?php echo htmlspecialchars($fechaFin, ENT_QUOTES, 'UTF-8'); ?>">
+                        <input type="hidden" name="filtro_status" value="<?php echo htmlspecialchars($statusSeleccionado, ENT_QUOTES, 'UTF-8'); ?>">
+
+                        <div class="col-md-4 col-lg-3">
+                            <label class="form-label" for="fecha_efectivo_input">Fecha del corte</label>
+                            <input type="date" id="fecha_efectivo_input" class="form-control" value="<?php echo htmlspecialchars($fechaEfectivoActual, ENT_QUOTES, 'UTF-8'); ?>" disabled>
+                            <div class="form-text">Basado en el filtro de fecha seleccionado.</div>
+                        </div>
+
+                        <div class="col-md-4 col-lg-3">
+                            <label class="form-label" for="efectivo_inicial">Efectivo inicial</label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" min="0" step="0.01" class="form-control" id="efectivo_inicial" name="efectivo_inicial" value="<?php echo $efectivoInicialRegistrado !== null ? htmlspecialchars(number_format($efectivoInicialRegistrado, 2, '.', ''), ENT_QUOTES, 'UTF-8') : ''; ?>" <?php echo $efectivoInicialBloqueado ? 'readonly' : ''; ?> required>
+                            </div>
+                            <?php if ($efectivoInicialBloqueado): ?>
+                                <div class="form-text text-success">Efectivo registrado: <?php echo htmlspecialchars($efectivoInicialRegistradoTexto, ENT_QUOTES, 'UTF-8'); ?></div>
+                            <?php else: ?>
+                                <div class="form-text">Ingresa con cuánto efectivo inició la jornada.</div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div class="col-md-4 col-lg-3">
+                            <button type="submit" class="btn btn-primary w-100" <?php echo $efectivoInicialBloqueado ? 'disabled' : ''; ?>>Guardar efectivo inicial</button>
+                        </div>
+
+                        <div class="col-12 col-lg-3">
+                            <div class="alert alert-secondary mb-0" role="alert">
+                                <i class="fas fa-lock me-2"></i>
+                                <?php if ($efectivoInicialBloqueado): ?>
+                                    El efectivo inicial para <?php echo htmlspecialchars($fechaEfectivoActualTexto, ENT_QUOTES, 'UTF-8'); ?> está bloqueado.
+                                <?php else: ?>
+                                    Una vez guardado, el monto quedará bloqueado para evitar cambios.
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
                 <form id="filtersForm" class="row mb-3 g-3" method="get">
                     <input type="hidden" name="aplicar_filtros" value="1">
                     <div class="col-md-3">
