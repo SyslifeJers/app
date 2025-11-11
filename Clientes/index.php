@@ -3,6 +3,7 @@ include '../Modulos/head.php';
 
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $puedeGestionarActivaciones = in_array($rolUsuario, [3, 5], true);
+$puedeVerReporteTutor = in_array($rolUsuario, [3, 5], true);
 $puedeAjustarSaldoDirecto = $puedeGestionarActivaciones;
 $puedeSolicitarAjusteSaldo = $rolUsuario > 0;
 $textoBotonSaldoDetalle = $puedeAjustarSaldoDirecto ? 'Ajustar saldo' : 'Solicitar ajuste de saldo';
@@ -194,6 +195,9 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     }
 
                     echo '<button class="btn btn-outline-info btn-sm" onclick="agregarUser(' . $row['id'] . ')"><i class="fas fa-child me-1"></i>Agregar niño</button>';
+                    if ($puedeVerReporteTutor) {
+                        echo '<button class="btn btn-outline-dark btn-sm" data-tutor-id="' . (int) $row['id'] . '" data-tutor-nombre="' . htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') . '" onclick="mostrarReporteTutor(this)"><i class="fas fa-chart-bar me-1"></i>Reporte</button>';
+                    }
                     echo '</div>';
                     echo '</td>';
                     echo '</tr>';
@@ -407,6 +411,46 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
         </div>
     </div>
 </div>
+<?php if ($puedeVerReporteTutor): ?>
+<div class="modal fade" id="reporteTutorModal" tabindex="-1" aria-labelledby="reporteTutorLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <h5 class="modal-title" id="reporteTutorLabel">Reporte del tutor</h5>
+                    <small class="text-muted" id="reporteTutorSubtitulo">Resumen de pacientes y recaudación.</small>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+            </div>
+            <div class="modal-body">
+                <div id="reporteTutorAlert" class="alert alert-danger d-none" role="alert"></div>
+                <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted small">Tutor</dt>
+                    <dd class="col-sm-8 fw-semibold" id="reporteTutorNombre">-</dd>
+                    <dt class="col-sm-4 text-muted small">Total de pacientes</dt>
+                    <dd class="col-sm-8" id="reporteTutorTotalNinos">0</dd>
+                    <dt class="col-sm-4 text-muted small">Eventos atendidos</dt>
+                    <dd class="col-sm-8" id="reporteTutorEventos">0</dd>
+                    <dt class="col-sm-4 text-muted small">Total recaudado</dt>
+                    <dd class="col-sm-8" id="reporteTutorRecaudado">$0.00</dd>
+                </dl>
+                <div class="mt-4">
+                    <h6 class="fw-semibold d-flex align-items-center gap-2">
+                        <i class="fas fa-child text-primary"></i>
+                        Pacientes asignados
+                    </h6>
+                    <ul class="list-group list-group-flush" id="reporteTutorNinos">
+                        <li class="list-group-item text-muted">Sin pacientes registrados.</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+            </div>
+        </div>
+    </div>
+</div>
+<?php endif; ?>
 <!-- Modal `id`, `name`, `telefono`, `correo` -->
 <div class="modal fade" id="exampleModal" tabindex="-1" aria-labelledby="exampleModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
@@ -549,6 +593,7 @@ include '../Modulos/footer.php';
     const saldoComentarioInput = document.getElementById('saldoComentario');
     const saldoSubmitButton = saldoForm ? saldoForm.querySelector('button[type="submit"]') : null;
     const puedeAjustarSaldoDirecto = <?php echo $puedeAjustarSaldoDirecto ? 'true' : 'false'; ?>;
+    const puedeVerReporteTutor = <?php echo $puedeVerReporteTutor ? 'true' : 'false'; ?>;
     const mensajeMontoInvalido = puedeAjustarSaldoDirecto
         ? 'Ingresa un monto distinto de cero para ajustar el saldo.'
         : 'Ingresa un monto distinto de cero para solicitar el ajuste.';
@@ -560,10 +605,162 @@ include '../Modulos/footer.php';
         : 'No se pudo registrar la solicitud.';
     const saldoEndpoint = puedeAjustarSaldoDirecto ? 'ajustarSaldo.php' : 'solicitarAjusteSaldo.php';
     const formatoMoneda = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+    const reporteTutorModalElement = document.getElementById('reporteTutorModal');
+    const reporteTutorAlert = document.getElementById('reporteTutorAlert');
+    const reporteTutorNombre = document.getElementById('reporteTutorNombre');
+    const reporteTutorTotalNinos = document.getElementById('reporteTutorTotalNinos');
+    const reporteTutorEventos = document.getElementById('reporteTutorEventos');
+    const reporteTutorRecaudado = document.getElementById('reporteTutorRecaudado');
+    const reporteTutorNinos = document.getElementById('reporteTutorNinos');
 
     function formatCurrency(value) {
         const numericValue = Number.parseFloat(value);
         return formatoMoneda.format(Number.isFinite(numericValue) ? numericValue : 0);
+    }
+
+    function hideReporteTutorAlert() {
+        if (!reporteTutorAlert) {
+            return;
+        }
+        reporteTutorAlert.classList.add('d-none');
+        reporteTutorAlert.textContent = '';
+    }
+
+    function showReporteTutorAlert(message) {
+        if (!reporteTutorAlert) {
+            return;
+        }
+        reporteTutorAlert.classList.remove('d-none');
+        reporteTutorAlert.textContent = message;
+    }
+
+    function resetReporteTutor() {
+        hideReporteTutorAlert();
+        if (reporteTutorNombre) {
+            reporteTutorNombre.textContent = '-';
+        }
+        if (reporteTutorTotalNinos) {
+            reporteTutorTotalNinos.textContent = '0';
+        }
+        if (reporteTutorEventos) {
+            reporteTutorEventos.textContent = '0';
+        }
+        if (reporteTutorRecaudado) {
+            reporteTutorRecaudado.textContent = formatCurrency(0);
+        }
+        if (reporteTutorNinos) {
+            reporteTutorNinos.innerHTML = '<li class="list-group-item text-muted">Sin pacientes registrados.</li>';
+        }
+    }
+
+    function mostrarReporteTutor(origen) {
+        if (!puedeVerReporteTutor || !reporteTutorModalElement) {
+            return;
+        }
+
+        let tutorId = origen;
+        let tutorNombre = '';
+
+        if (origen && typeof origen === 'object' && 'dataset' in origen) {
+            const dataset = origen.dataset;
+            if (dataset.tutorId) {
+                const parsedId = Number.parseInt(dataset.tutorId, 10);
+                tutorId = Number.isNaN(parsedId) ? dataset.tutorId : parsedId;
+            }
+            if (dataset.tutorNombre) {
+                tutorNombre = dataset.tutorNombre;
+            }
+        }
+
+        tutorId = Number.parseInt(tutorId, 10);
+        if (!Number.isInteger(tutorId) || tutorId <= 0) {
+            return;
+        }
+
+        resetReporteTutor();
+        if (reporteTutorNombre) {
+            reporteTutorNombre.textContent = tutorNombre ? `${tutorNombre} (#${tutorId})` : `Tutor #${tutorId}`;
+        }
+        if (reporteTutorNinos) {
+            reporteTutorNinos.innerHTML = '<li class="list-group-item text-muted">Cargando información...</li>';
+        }
+
+        const modalInstance = bootstrap.Modal.getOrCreateInstance(reporteTutorModalElement);
+        modalInstance.show();
+
+        hideReporteTutorAlert();
+
+        fetch(`reporte_tutor.php?id=${encodeURIComponent(tutorId)}`)
+            .then(function (response) {
+                if (!response.ok) {
+                    throw new Error('No se pudo obtener la información del tutor.');
+                }
+                return response.json();
+            })
+            .then(function (payload) {
+                if (!payload || !payload.success) {
+                    const mensaje = payload && payload.error ? payload.error : 'No se pudo generar el reporte del tutor.';
+                    throw new Error(mensaje);
+                }
+
+                const data = payload.data || {};
+                if (data.tutor && reporteTutorNombre) {
+                    const nombre = data.tutor.nombre ? String(data.tutor.nombre) : `Tutor #${tutorId}`;
+                    const idTutor = Number.parseInt(data.tutor.id, 10);
+                    const sufijoId = Number.isNaN(idTutor) ? '' : ` (#${idTutor})`;
+                    reporteTutorNombre.textContent = nombre + sufijoId;
+                }
+
+                if (reporteTutorTotalNinos) {
+                    const totalNinos = Number.parseInt(data.total_ninos, 10);
+                    reporteTutorTotalNinos.textContent = Number.isNaN(totalNinos) ? '0' : String(totalNinos);
+                }
+
+                if (reporteTutorEventos) {
+                    const totalEventos = Number.parseInt(data.total_eventos, 10);
+                    reporteTutorEventos.textContent = Number.isNaN(totalEventos) ? '0' : String(totalEventos);
+                }
+
+                if (reporteTutorRecaudado) {
+                    const totalRecaudado = Number.parseFloat(data.total_recaudado);
+                    reporteTutorRecaudado.textContent = formatCurrency(Number.isNaN(totalRecaudado) ? 0 : totalRecaudado);
+                }
+
+                if (reporteTutorNinos) {
+                    const listaNinos = Array.isArray(data.ninos) ? data.ninos : [];
+                    if (listaNinos.length === 0) {
+                        reporteTutorNinos.innerHTML = '<li class="list-group-item text-muted">Sin pacientes registrados.</li>';
+                    } else {
+                        reporteTutorNinos.innerHTML = '';
+                        listaNinos.forEach(function (nino) {
+                            const li = document.createElement('li');
+                            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+
+                            const spanNombre = document.createElement('span');
+                            spanNombre.textContent = nino && nino.nombre ? String(nino.nombre) : 'Paciente sin nombre';
+                            li.appendChild(spanNombre);
+
+                            if (nino && Object.prototype.hasOwnProperty.call(nino, 'id')) {
+                                const idValor = Number.parseInt(nino.id, 10);
+                                if (!Number.isNaN(idValor)) {
+                                    const spanId = document.createElement('span');
+                                    spanId.className = 'badge bg-secondary-subtle text-secondary-emphasis';
+                                    spanId.textContent = `ID ${idValor}`;
+                                    li.appendChild(spanId);
+                                }
+                            }
+
+                            reporteTutorNinos.appendChild(li);
+                        });
+                    }
+                }
+            })
+            .catch(function (error) {
+                if (reporteTutorNinos) {
+                    reporteTutorNinos.innerHTML = '<li class="list-group-item text-danger">No se pudo cargar la información.</li>';
+                }
+                showReporteTutorAlert(error.message || 'No se pudo generar el reporte del tutor.');
+            });
     }
 
     if (modalNinoForm) {
@@ -946,6 +1143,9 @@ include '../Modulos/footer.php';
     }
     window.openModal = openModal;
     window.openSaldoModal = openSaldoModal;
+    if (puedeVerReporteTutor) {
+        window.mostrarReporteTutor = mostrarReporteTutor;
+    }
     const detalleModalElement = document.getElementById('DatosNino');
     const detalleNombre = document.getElementById('detalleNinoNombre');
     const detalleTutor = document.getElementById('detalleNinoTutor');

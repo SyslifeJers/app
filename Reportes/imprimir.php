@@ -90,6 +90,64 @@ if (!empty($tipoPid) && !empty($idNino)) {
 $stmt_summary2->execute();
 $summary2_rows = $stmt_summary2->get_result()->fetch_all(MYSQLI_ASSOC);
 
+$totalEfectivoInicial = 0.0;
+if ($fecha_inicio !== '' && $fecha_fin !== '') {
+    $stmtEfectivoInicial = $conn->prepare('SELECT COALESCE(SUM(efectivo_inicial), 0) AS total_inicial FROM CorteCaja WHERE fecha BETWEEN ? AND ?');
+    if ($stmtEfectivoInicial instanceof mysqli_stmt) {
+        $stmtEfectivoInicial->bind_param('ss', $fecha_inicio, $fecha_fin);
+        $stmtEfectivoInicial->execute();
+        $stmtEfectivoInicial->bind_result($totalInicialConsulta);
+        if ($stmtEfectivoInicial->fetch()) {
+            $totalEfectivoInicial = (float) $totalInicialConsulta;
+        }
+        $stmtEfectivoInicial->close();
+    }
+}
+
+$consultaEfectivo = "SELECT COALESCE(SUM(cp.monto), 0) AS total_efectivo
+                     FROM CitaPagos cp
+                     INNER JOIN Cita ci ON ci.id = cp.cita_id
+                     WHERE ci.Estatus = 4";
+$tiposEfectivo = '';
+$parametrosEfectivo = [];
+
+if ($fecha_inicio !== '' && $fecha_fin !== '') {
+    $consultaEfectivo .= ' AND DATE(ci.Programado) BETWEEN ? AND ?';
+    $tiposEfectivo .= 'ss';
+    $parametrosEfectivo[] = $fecha_inicio;
+    $parametrosEfectivo[] = $fecha_fin;
+}
+
+if (!empty($tipoPid)) {
+    $consultaEfectivo .= ' AND ci.IdUsuario = ?';
+    $tiposEfectivo .= 'i';
+    $parametrosEfectivo[] = $tipoPid;
+}
+
+if (!empty($idNino)) {
+    $consultaEfectivo .= ' AND ci.IdNino = ?';
+    $tiposEfectivo .= 'i';
+    $parametrosEfectivo[] = $idNino;
+}
+
+$consultaEfectivo .= ' AND LOWER(cp.metodo) = ?';
+$tiposEfectivo .= 's';
+$parametrosEfectivo[] = 'efectivo';
+
+$totalEfectivoPagado = 0.0;
+$stmtEfectivo = $conn->prepare($consultaEfectivo);
+if ($stmtEfectivo instanceof mysqli_stmt) {
+    $stmtEfectivo->bind_param($tiposEfectivo, ...$parametrosEfectivo);
+    $stmtEfectivo->execute();
+    $stmtEfectivo->bind_result($totalEfectivoConsulta);
+    if ($stmtEfectivo->fetch()) {
+        $totalEfectivoPagado = (float) $totalEfectivoConsulta;
+    }
+    $stmtEfectivo->close();
+}
+
+$totalEfectivoEnCaja = $totalEfectivoInicial + $totalEfectivoPagado;
+
 if ($totalCitas > 0) {
     // Creación del PDF
     $pdf = new FPDF();
@@ -103,6 +161,10 @@ if ($totalCitas > 0) {
     $pdf->SetFont('Arial', 'B', 12);
     $pdf->Cell(0, 10, 'Total de citas: ' . $totalCitas, 0, 1, 'L');
     $pdf->Cell(0, 10, 'Total costos: ' . number_format($totalCosto, 2), 0, 1, 'L');
+    $pdf->Cell(0, 8, 'Efectivo inicial registrado: ' . number_format($totalEfectivoInicial, 2), 0, 1, 'L');
+    $pdf->Cell(0, 8, 'Efectivo cobrado en citas: ' . number_format($totalEfectivoPagado, 2), 0, 1, 'L');
+    $pdf->Cell(0, 8, 'Efectivo estimado en caja: ' . number_format($totalEfectivoEnCaja, 2), 0, 1, 'L');
+    $pdf->Ln(2);
     $pdf->SetFont('Arial','B',8);
     foreach ($summary2_rows as $row) {
         $formaPago = $row['FormaPago'] ? $row['FormaPago'] : 'No asignado';
