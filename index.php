@@ -3,6 +3,103 @@
 include 'Modulos/head.php';
 
 $rolUsuario = $_SESSION['rol'] ?? 0;
+$zonaHorariaApp = new DateTimeZone('America/Mexico_City');
+$fechaCorteHoy = (new DateTime('now', $zonaHorariaApp))->format('Y-m-d');
+$fechaCorteHoyTexto = DateTime::createFromFormat('Y-m-d', $fechaCorteHoy, $zonaHorariaApp);
+$fechaCorteHoyTexto = $fechaCorteHoyTexto ? $fechaCorteHoyTexto->format('d/m/Y') : $fechaCorteHoy;
+$mensajeCorteCaja = $_SESSION['corte_caja_mensaje'] ?? null;
+unset($_SESSION['corte_caja_mensaje']);
+
+$requiereEfectivoInicial = false;
+$efectivoInicialRegistrado = null;
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'registrar_efectivo_inicial') {
+    $fechaEfectivo = trim((string) ($_POST['fecha_efectivo'] ?? ''));
+    $montoInicialRaw = str_replace(',', '', (string) ($_POST['efectivo_inicial'] ?? ''));
+    $montoInicialRaw = trim($montoInicialRaw);
+    $mensaje = ['tipo' => 'danger', 'texto' => 'Ocurrió un error al registrar el efectivo inicial.'];
+
+    $fechaValidada = DateTime::createFromFormat('Y-m-d', $fechaEfectivo, $zonaHorariaApp);
+    if (!$fechaValidada || $fechaValidada->format('Y-m-d') !== $fechaEfectivo) {
+        $mensaje['texto'] = 'Selecciona una fecha válida para el efectivo inicial.';
+    } elseif ($montoInicialRaw === '' || !is_numeric($montoInicialRaw)) {
+        $mensaje['texto'] = 'Ingresa un monto válido para el efectivo inicial.';
+    } else {
+        $montoInicial = (float) $montoInicialRaw;
+        if ($montoInicial < 0) {
+            $mensaje['texto'] = 'El efectivo inicial no puede ser negativo.';
+        } else {
+            $stmtExiste = $conn->prepare('SELECT 1 FROM CorteCaja WHERE fecha = ? LIMIT 1');
+            if ($stmtExiste instanceof mysqli_stmt) {
+                $stmtExiste->bind_param('s', $fechaEfectivo);
+                $stmtExiste->execute();
+                $stmtExiste->store_result();
+
+                if ($stmtExiste->num_rows > 0) {
+                    $mensaje['texto'] = sprintf(
+                        'El efectivo inicial para %s ya fue registrado.',
+                        $fechaValidada->format('d/m/Y')
+                    );
+                } else {
+                    $idUsuario = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
+                    if ($idUsuario) {
+                        $stmtInsert = $conn->prepare('INSERT INTO CorteCaja (fecha, efectivo_inicial, registrado_por) VALUES (?, ?, ?)');
+                        if ($stmtInsert instanceof mysqli_stmt) {
+                            $stmtInsert->bind_param('sdi', $fechaEfectivo, $montoInicial, $idUsuario);
+                        }
+                    } else {
+                        $stmtInsert = $conn->prepare('INSERT INTO CorteCaja (fecha, efectivo_inicial, registrado_por) VALUES (?, ?, NULL)');
+                        if ($stmtInsert instanceof mysqli_stmt) {
+                            $stmtInsert->bind_param('sd', $fechaEfectivo, $montoInicial);
+                        }
+                    }
+
+                    if (isset($stmtInsert) && $stmtInsert instanceof mysqli_stmt) {
+                        if ($stmtInsert->execute()) {
+                            $mensaje = [
+                                'tipo' => 'success',
+                                'texto' => sprintf(
+                                    'Se registró $%s como efectivo inicial para %s.',
+                                    number_format($montoInicial, 2),
+                                    $fechaValidada->format('d/m/Y')
+                                ),
+                            ];
+                        } else {
+                            $mensaje['texto'] = 'No se pudo guardar el efectivo inicial. Inténtalo nuevamente.';
+                        }
+                        $stmtInsert->close();
+                    } else {
+                        $mensaje['texto'] = 'No se pudo preparar el registro del efectivo inicial.';
+                    }
+                }
+
+                $stmtExiste->close();
+            } else {
+                $mensaje['texto'] = 'No se pudo verificar si ya existe un registro de efectivo inicial.';
+            }
+        }
+    }
+
+    $_SESSION['corte_caja_mensaje'] = $mensaje;
+    header('Location: index.php');
+    exit;
+}
+
+$stmtEfectivoHoy = $conn->prepare('SELECT efectivo_inicial FROM CorteCaja WHERE fecha = ? LIMIT 1');
+if ($stmtEfectivoHoy instanceof mysqli_stmt) {
+    $stmtEfectivoHoy->bind_param('s', $fechaCorteHoy);
+    $stmtEfectivoHoy->execute();
+    $stmtEfectivoHoy->bind_result($efectivoHoy);
+    if ($stmtEfectivoHoy->fetch()) {
+        $efectivoInicialRegistrado = (float) $efectivoHoy;
+    } else {
+        $requiereEfectivoInicial = true;
+    }
+    $stmtEfectivoHoy->close();
+} else {
+    $requiereEfectivoInicial = true;
+}
+
 $mensajeReprogramacion = $_SESSION['reprogramacion_mensaje'] ?? null;
 $tipoReprogramacion = $_SESSION['reprogramacion_tipo'] ?? 'success';
 unset($_SESSION['reprogramacion_mensaje'], $_SESSION['reprogramacion_tipo']);
@@ -42,6 +139,12 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
         <h4 class="card-title">Citas</h4>
       </div>
       <div class="card-body">
+        <?php if ($mensajeCorteCaja !== null): ?>
+          <div class="alert alert-<?php echo htmlspecialchars($mensajeCorteCaja['tipo'], ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
+            <?php echo htmlspecialchars($mensajeCorteCaja['texto'], ENT_QUOTES, 'UTF-8'); ?>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        <?php endif; ?>
         <?php if ($mensajeReprogramacion): ?>
           <div class="alert alert-<?php echo htmlspecialchars($tipoReprogramacion, ENT_QUOTES, 'UTF-8'); ?> alert-dismissible fade show" role="alert">
             <?php echo htmlspecialchars($mensajeReprogramacion, ENT_QUOTES, 'UTF-8'); ?>
@@ -466,6 +569,36 @@ $result = $stmt->get_result();
     </div>
   </div>
 </div>
+<div class="modal fade" id="modalEfectivoInicial" tabindex="-1" aria-labelledby="modalEfectivoInicialLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <form method="post">
+        <input type="hidden" name="accion" value="registrar_efectivo_inicial">
+        <input type="hidden" name="fecha_efectivo" value="<?php echo htmlspecialchars($fechaCorteHoy, ENT_QUOTES, 'UTF-8'); ?>">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalEfectivoInicialLabel">Efectivo inicial del día</h5>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">
+            Ingresa el efectivo con el que inicia la jornada del <?php echo htmlspecialchars($fechaCorteHoyTexto, ENT_QUOTES, 'UTF-8'); ?>.
+          </p>
+          <div class="mb-3">
+            <label for="efectivo_inicial_modal" class="form-label">Efectivo inicial</label>
+            <div class="input-group">
+              <span class="input-group-text">$</span>
+              <input type="number" min="0" step="0.01" class="form-control" id="efectivo_inicial_modal" name="efectivo_inicial" required>
+            </div>
+            <div class="form-text">Este monto quedará bloqueado una vez guardado.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="submit" class="btn btn-primary">Guardar efectivo inicial</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <div class="modal fade" id="ModalTipoPago" tabindex="-1" aria-labelledby="ModalTipoPagoLabel" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -598,6 +731,18 @@ $result = $stmt->get_result();
 <?php
 include 'Modulos/footer.php';
 ?>
+
+<?php if ($requiereEfectivoInicial): ?>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var modalElement = document.getElementById('modalEfectivoInicial');
+    if (modalElement && typeof bootstrap !== 'undefined') {
+      var modal = new bootstrap.Modal(modalElement, {backdrop: 'static', keyboard: false});
+      modal.show();
+    }
+  });
+</script>
+<?php endif; ?>
 
 <script>window.ES_VENTAS = <?php echo ($rolUsuario == 1) ? 'true' : 'false'; ?>;</script>
 <script src="assets/js/citas.js?v=<?php echo time(); ?>"></script>
