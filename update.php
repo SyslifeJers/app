@@ -46,21 +46,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             exit;
         }
 
-        // Verificar si ya existe una solicitud pendiente para la cita
-        $stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
-        $stmtPendiente->bind_param('i', $citaId);
-        $stmtPendiente->execute();
-        $stmtPendiente->bind_result($totalPendientes);
-        $stmtPendiente->fetch();
-        $stmtPendiente->close();
-
-        if ($totalPendientes > 0) {
-            $_SESSION['reprogramacion_mensaje'] = 'Ya existe una solicitud pendiente para esta cita.';
-            $_SESSION['reprogramacion_tipo'] = 'warning';
-            header('Location: index.php');
-            exit;
-        }
-
         // Obtener la fecha programada actual para almacenarla en la solicitud
         $stmtFechaActual = $conn->prepare('SELECT Programado FROM Cita WHERE id = ?');
         $stmtFechaActual->bind_param('i', $citaId);

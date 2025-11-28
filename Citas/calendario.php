@@ -1374,10 +1374,10 @@ include '../Modulos/head.php';
             if (detailReprogramButton) {
                 detailReprogramButton.dataset.citaId = event.id || '';
                 if (ES_VENTAS_ROLE) {
-                    detailReprogramButton.textContent = reprogramCount > 0 ? 'Solicitud pendiente' : 'Solicitar reprogramación';
-                    detailReprogramButton.disabled = reprogramCount > 0 || !event.id || isCancelled;
+                    detailReprogramButton.textContent = 'Solicitar reprogramación';
+                    detailReprogramButton.disabled = !event.id || isCancelled;
                     if (reprogramCount > 0) {
-                        helperMessages.push('Ya existe una solicitud de reprogramación pendiente.');
+                        helperMessages.push('Ya existe una solicitud de reprogramación pendiente. Se registrará una nueva.');
                     }
                 } else {
                     detailReprogramButton.textContent = 'Reprogramar';
@@ -1392,10 +1392,10 @@ include '../Modulos/head.php';
             if (detailCancelButton) {
                 detailCancelButton.dataset.citaId = event.id || '';
                 if (ES_VENTAS_ROLE) {
-                    detailCancelButton.textContent = cancelCount > 0 ? 'Cancelación pendiente' : 'Solicitar cancelación';
-                    detailCancelButton.disabled = cancelCount > 0 || !event.id || isCancelled;
+                    detailCancelButton.textContent = 'Solicitar cancelación';
+                    detailCancelButton.disabled = !event.id || isCancelled;
                     if (cancelCount > 0) {
-                        helperMessages.push('Ya existe una solicitud de cancelación pendiente.');
+                        helperMessages.push('Ya existe una solicitud de cancelación pendiente. Se registrará una nueva.');
                     }
                 } else {
                     detailCancelButton.textContent = 'Cancelar';
