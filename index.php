@@ -345,18 +345,10 @@ $result = $stmt->get_result();
               $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
               if ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado') {
-              if ($rolUsuario == 1 && $pendientesReprogramacion > 0) {
-                $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Solicitud pendiente</button>';
-              } else {
-                $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
-              }
+              $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
 
               if ($rolUsuario == 1) {
-                if ($pendientesCancelacion > 0) {
-                  $botones[] = '<button class="btn btn-secondary btn-sm" disabled>Cancelación pendiente</button>';
-                } else {
-                  $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Solicitar cancelación</button>';
-                }
+                $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Solicitar cancelación</button>';
               } else {
                 $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
               }

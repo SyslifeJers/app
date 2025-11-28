@@ -97,19 +97,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             finalizarRespuesta(false, 'El módulo de solicitudes no está disponible. Contacta al administrador.', 'danger');
         }
 
-        $totalPendientes = 0;
-        if ($stmtPendiente = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
-            $stmtPendiente->bind_param('i', $citaId);
-            $stmtPendiente->execute();
-            $stmtPendiente->bind_result($totalPendientes);
-            $stmtPendiente->fetch();
-            $stmtPendiente->close();
-        }
-
-        if ($totalPendientes > 0) {
-            finalizarRespuesta(false, 'Ya existe una solicitud de cancelación pendiente para esta cita.', 'warning');
-        }
-
         if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'cancelacion')")) {
             $stmtSolicitud->bind_param('issis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual);
             $stmtSolicitud->execute();
