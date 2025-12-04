@@ -422,9 +422,6 @@ include '../Modulos/head.php';
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales-all.global.min.js"></script>
 <script>
-    window.ES_VENTAS = <?php echo ($rol === 1) ? 'true' : 'false'; ?>;
-</script>
-<script>
     document.addEventListener('DOMContentLoaded', function () {
         const calendarElement = document.getElementById('calendar');
         if (!calendarElement) {
@@ -1095,7 +1092,6 @@ include '../Modulos/head.php';
         const detailActionsHelper = document.getElementById('detail-actions-helper');
         const detailReprogramButton = document.getElementById('detail-reprogram-button');
         const detailCancelButton = document.getElementById('detail-cancel-button');
-        const ES_VENTAS_ROLE = Boolean(window.ES_VENTAS);
         const reprogramModalElement = document.getElementById('updateModal');
         let reprogramModalInstance = null;
 
@@ -1217,15 +1213,15 @@ include '../Modulos/head.php';
             }
 
             if (modalTitle) {
-                modalTitle.textContent = ES_VENTAS_ROLE ? 'Solicitar reprogramación' : 'Actualizar Fecha de Cita';
+                modalTitle.textContent = 'Actualizar Fecha de Cita';
             }
 
             if (submitButton) {
-                submitButton.textContent = ES_VENTAS_ROLE ? 'Enviar solicitud' : 'Actualizar';
+                submitButton.textContent = 'Actualizar';
             }
 
             if (aviso) {
-                aviso.style.display = ES_VENTAS_ROLE ? 'block' : 'none';
+                aviso.style.display = 'none';
             }
 
             modal.show();
@@ -1236,11 +1232,9 @@ include '../Modulos/head.php';
                 return;
             }
 
-            if (!ES_VENTAS_ROLE) {
-                const confirmed = window.confirm('¿Deseas cancelar esta cita?');
-                if (!confirmed) {
-                    return;
-                }
+            const confirmed = window.confirm('¿Deseas cancelar esta cita?');
+            if (!confirmed) {
+                return;
             }
 
             const params = new URLSearchParams();
@@ -1373,34 +1367,18 @@ include '../Modulos/head.php';
 
             if (detailReprogramButton) {
                 detailReprogramButton.dataset.citaId = event.id || '';
-                if (ES_VENTAS_ROLE) {
-                    detailReprogramButton.textContent = 'Solicitar reprogramación';
-                    detailReprogramButton.disabled = !event.id || isCancelled;
-                    if (reprogramCount > 0) {
-                        helperMessages.push('Ya existe una solicitud de reprogramación pendiente. Se registrará una nueva.');
-                    }
-                } else {
-                    detailReprogramButton.textContent = 'Reprogramar';
-                    const editable = Boolean(props.isEditable) && !isCancelled;
-                    detailReprogramButton.disabled = !editable || !event.id;
-                    if (!editable) {
-                        helperMessages.push('La cita no se puede reprogramar desde el calendario.');
-                    }
+                detailReprogramButton.textContent = 'Reprogramar';
+                const editable = Boolean(props.isEditable) && !isCancelled;
+                detailReprogramButton.disabled = !editable || !event.id;
+                if (!editable) {
+                    helperMessages.push('La cita no se puede reprogramar desde el calendario.');
                 }
             }
 
             if (detailCancelButton) {
                 detailCancelButton.dataset.citaId = event.id || '';
-                if (ES_VENTAS_ROLE) {
-                    detailCancelButton.textContent = 'Solicitar cancelación';
-                    detailCancelButton.disabled = !event.id || isCancelled;
-                    if (cancelCount > 0) {
-                        helperMessages.push('Ya existe una solicitud de cancelación pendiente. Se registrará una nueva.');
-                    }
-                } else {
-                    detailCancelButton.textContent = 'Cancelar';
-                    detailCancelButton.disabled = !event.id || isCancelled;
-                }
+                detailCancelButton.textContent = 'Cancelar';
+                detailCancelButton.disabled = !event.id || isCancelled;
             }
 
             if (isCancelled) {
