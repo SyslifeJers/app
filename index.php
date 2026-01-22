@@ -347,11 +347,8 @@ $result = $stmt->get_result();
               if ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado') {
               $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
 
-              if ($rolUsuario == 1) {
-                $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Solicitar cancelación</button>';
-              } else {
                 $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
-              }
+              
             }
 
               if ($formaPagoRegistrada !== '') {

@@ -15,7 +15,7 @@ $fechaActual = date('Y-m-d H:i:s'); // Formato de fecha y hora actual
 $idUsuario = $_SESSION['id'] ?? null;
 $rolUsuario = $_SESSION['rol'] ?? null;
 
-$ROL_VENTAS = 1;
+$ROL_VENTAS = 0;
 $ROL_RECEPCION = 2;
 $ROL_ADMIN = 3;
 $ROL_COORDINADOR = 5;

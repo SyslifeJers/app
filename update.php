@@ -26,7 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     // Constantes de rol
-    $ROL_VENTAS = 1;
+    $ROL_VENTAS = 0;
     $ROL_RECEPCION = 2;
     $ROL_ADMIN = 3;
     $ROL_COORDINADOR = 5;
