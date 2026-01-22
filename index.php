@@ -340,15 +340,15 @@ $result = $stmt->get_result();
               $textoBadgeCancelacion = $pendientesCancelacion > 0 ? 'Pendiente (' . $pendientesCancelacion . ')' : 'Sin solicitudes';
               $badgeClassCancelacion = $pendientesCancelacion > 0 ? 'badge bg-warning text-dark' : 'badge bg-secondary';
 
-              $reprogramarTexto = ($rolUsuario == 1) ? 'Solicitar reprogramación' : 'Reprogramar';
+              $reprogramarTexto = 'Reprogramar';
               $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
               $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
               if ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado') {
               $botones[] = '<button class="btn btn-primary btn-sm" onclick="Reprogramar(' . $row['id'] . ')">' . $reprogramarTexto . '</button>';
 
-                $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
-              
+              $botones[] = '<button class="btn btn-danger btn-sm" onclick="actualizarCita(' . $row['id'] . ',1)">Cancelar</button>';
+
             }
 
               if ($formaPagoRegistrada !== '') {

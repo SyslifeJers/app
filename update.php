@@ -38,56 +38,6 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         $tablaSolicitudes->free();
     }
 
-    if ($rolUsuario === $ROL_VENTAS) {
-        if (!$tablaSolicitudesDisponible) {
-            $_SESSION['reprogramacion_mensaje'] = 'El módulo de solicitudes no está disponible. Contacta al administrador.';
-            $_SESSION['reprogramacion_tipo'] = 'danger';
-            header('Location: index.php');
-            exit;
-        }
-
-        // Obtener la fecha programada actual para almacenarla en la solicitud
-        $stmtFechaActual = $conn->prepare('SELECT Programado FROM Cita WHERE id = ?');
-        $stmtFechaActual->bind_param('i', $citaId);
-        $stmtFechaActual->execute();
-        $stmtFechaActual->bind_result($fechaAnterior);
-        $stmtFechaActual->fetch();
-        $stmtFechaActual->close();
-
-        if (!$fechaAnterior) {
-            $_SESSION['reprogramacion_mensaje'] = 'No fue posible localizar la cita seleccionada.';
-            $_SESSION['reprogramacion_tipo'] = 'danger';
-            header('Location: index.php');
-            exit;
-        }
-
-        $stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'reprogramacion')");
-        $stmtSolicitud->bind_param('issis', $citaId, $fechaAnterior, $fechaProgramada, $idUsuario, $fechaActual);
-        $stmtSolicitud->execute();
-        $solicitudId = $conn->insert_id;
-        $stmtSolicitud->close();
-
-        registrarLog(
-            $conn,
-            $idUsuario,
-            'citas',
-            'solicitud_reprogramacion',
-            sprintf(
-                'Solicitud de reprogramación para la cita #%d. Fecha anterior: %s. Nueva fecha solicitada: %s.',
-                $citaId,
-                $fechaAnterior,
-                $fechaProgramada
-            ),
-            'SolicitudReprogramacion',
-            (string) $solicitudId
-        );
-
-        $_SESSION['reprogramacion_mensaje'] = 'Se envió la solicitud de reprogramación para aprobación.';
-        $_SESSION['reprogramacion_tipo'] = 'success';
-        header('Location: index.php');
-        exit;
-    }
-
     $shouldRegistrarAutoSolicitud = $tablaSolicitudesDisponible
         && $rolUsuario === $ROL_RECEPCION
         && empty($_POST['solicitudId'])

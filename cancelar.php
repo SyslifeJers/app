@@ -92,32 +92,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $tablaSolicitudes->free();
     }
 
-    if ($rolUsuario === $ROL_VENTAS && $estatus === 1) {
-        if (!$tablaSolicitudesDisponible) {
-            finalizarRespuesta(false, 'El módulo de solicitudes no está disponible. Contacta al administrador.', 'danger');
-        }
-
-        if ($stmtSolicitud = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, solicitado_por, fecha_solicitud, tipo) VALUES (?, ?, ?, 'pendiente', ?, ?, 'cancelacion')")) {
-            $stmtSolicitud->bind_param('issis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual);
-            $stmtSolicitud->execute();
-            $solicitudId = $conn->insert_id;
-            $stmtSolicitud->close();
-
-            registrarLog(
-                $conn,
-                $idUsuario,
-                'citas',
-                'solicitud_cancelacion',
-                sprintf('Solicitud de cancelación para la cita #%d programada el %s.', $citaId, $fechaProgramadaActual),
-                'SolicitudReprogramacion',
-                (string) $solicitudId
-            );
-            finalizarRespuesta(true, 'Se envió la solicitud de cancelación para aprobación.', 'success');
-        } else {
-            finalizarRespuesta(false, 'No fue posible registrar la solicitud de cancelación. Intenta nuevamente.', 'danger');
-        }
-    }
-
     $usaTransaccion = false;
     $detallesSaldo = [];
     $detallesPagos = [];
