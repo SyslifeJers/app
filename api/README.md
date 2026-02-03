@@ -8,6 +8,42 @@ Este directorio expone un punto de acceso REST sencillo para administrar citas m
 - **Formatos soportados**: JSON
 - **Métodos permitidos**: `GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`
 
+## Reportes de analítica
+
+- **URL**: `/api/analitica.php`
+- **Formatos soportados**: JSON
+- **Métodos permitidos**: `GET`, `OPTIONS`
+- **Parámetros comunes**:
+  - `fecha_inicio` (opcional): fecha/hora mínima en formato válido (`2024-01-01`, `2024-01-01 10:00`, etc).
+  - `fecha_fin` (opcional): fecha/hora máxima (exclusiva) en formato válido.
+
+### Resumen básico de citas
+
+- **`GET /api/analitica.php?reporte=citas_basico`**
+- Devuelve conteos totales de citas por estatus (canceladas, programadas, reprogramadas y completadas).
+
+### Resumen básico de clientes
+
+- **`GET /api/analitica.php?reporte=clientes_basico`**
+- Devuelve el total de pacientes y citas por cliente/tutor, incluyendo cancelaciones y completadas.
+
+### Cancelaciones frecuentes
+
+- **`GET /api/analitica.php?reporte=cancelaciones_frecuentes`**
+- Parámetros opcionales:
+  - `min_cancelaciones` (default: 2)
+  - `limit` (default: 20)
+- Devuelve pacientes con cancelaciones frecuentes y la última cancelación registrada.
+
+### Prospectos para promoción
+
+- **`GET /api/analitica.php?reporte=prospectos_promocion`**
+- Parámetros opcionales:
+  - `min_completadas` (default: 5)
+  - `max_canceladas` (default: 1)
+  - `limit` (default: 20)
+- Devuelve pacientes con alto número de citas completadas y pocas cancelaciones.
+
 ## Operaciones
 
 ### Obtener citas
