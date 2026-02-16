@@ -259,9 +259,46 @@ include '../Modulos/head.php';
         font-weight: 600;
     }
 
+    #calendar-alert {
+        position: fixed;
+        top: 1rem;
+        right: 1rem;
+        z-index: 1080;
+        width: min(92vw, 460px);
+        box-shadow: 0 18px 40px rgba(15, 23, 42, 0.25);
+        border-width: 1px;
+        font-weight: 600;
+        white-space: normal;
+    }
+
+    #calendar-alert.alert-success {
+        background-color: #dcfce7;
+        border-color: #22c55e;
+        color: #14532d;
+    }
+
+    #calendar-alert.alert-danger {
+        background-color: #fee2e2;
+        border-color: #ef4444;
+        color: #7f1d1d;
+    }
+
+    #calendar-alert.alert-warning {
+        background-color: #fef3c7;
+        border-color: #f59e0b;
+        color: #78350f;
+    }
+
     @media (max-width: 768px) {
         .calendar-wrapper {
             padding: 1rem;
+        }
+
+        #calendar-alert {
+            top: 0.75rem;
+            left: 0.75rem;
+            right: 0.75rem;
+            width: auto;
         }
 
     }
@@ -347,7 +384,7 @@ include '../Modulos/head.php';
             <div class="alert alert-info" id="calendar-instructions">
                 Selecciona una cita dentro del calendario para ver más información.
             </div>
-            <div class="alert alert-danger d-none" id="calendar-alert"></div>
+            <div class="alert alert-danger d-none" id="calendar-alert" role="alert" aria-live="assertive"></div>
         </div>
     </div>
 
