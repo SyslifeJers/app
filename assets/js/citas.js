@@ -867,12 +867,18 @@ function validarFormulario(event) {
   const cliente = document.getElementById('resumenCliente').value;
   const psicologo = document.getElementById('resumenPsicologo').value;
   const tipo = document.getElementById('resumenTipo').value;
-  const costo = document.getElementById('resumenCosto').value;
+  const costoTexto = document.getElementById('resumenCosto').value;
   const fecha = document.getElementById('resumenFecha').value;
+  const costo = parseFloat(costoTexto);
 
   // Validar que los campos no estén vacíos
-  if (!cliente || !psicologo || !tipo || !costo || !fecha) {
+  if (!cliente || !psicologo || !tipo || costoTexto === '' || !fecha) {
     alert('Todos los campos son obligatorios.');
+    return false;
+  }
+
+  if (Number.isNaN(costo) || costo < 0) {
+    alert('El costo debe ser un número mayor o igual a 0.');
     return false;
   }
 
@@ -945,6 +951,11 @@ function loadCostos() {
   xhr.open('GET', 'Modulos/getPrecios.php', true);
   xhr.onload = function () {
     if (this.status === 200) {
+      $('#costosSelect').append($('<option>', {
+        value: 0,
+        text: 'Reunión interna (sin costo)'
+      }));
+
       var jsonString = this.responseText;
       var jsonItems = jsonString.match(/({.*?})/g);
 

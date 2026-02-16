@@ -7,7 +7,13 @@ ini_set('display_errors', 1);
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $required = ['sendIdCliente', 'sendIdPsicologo', 'resumenTipo', 'resumenFecha', 'resumenCosto'];
     foreach ($required as $field) {
-        if (!isset($_POST[$field]) || empty($_POST[$field])) {
+        if (!isset($_POST[$field])) {
+            echo json_encode(['success' => false, 'message' => "Falta el campo: $field"]);
+            exit;
+        }
+
+        $valor = is_string($_POST[$field]) ? trim($_POST[$field]) : $_POST[$field];
+        if ($valor === '') {
             echo json_encode(['success' => false, 'message' => "Falta el campo: $field"]);
             exit;
         }
@@ -28,6 +34,11 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $estatus = 2;
     $fechaActual = date('Y-m-d H:i:s');
     $costo = (float) $_POST['resumenCosto'];
+    if ($costo < 0) {
+        echo json_encode(['success' => false, 'message' => 'El costo no puede ser negativo.']);
+        $conn->close();
+        exit;
+    }
 
     $paqueteId = isset($_POST['sendIdPaquete']) && $_POST['sendIdPaquete'] !== '' ? (int) $_POST['sendIdPaquete'] : null;
     $paqueteMetodo = isset($_POST['paqueteMetodo']) ? trim($_POST['paqueteMetodo']) : '';

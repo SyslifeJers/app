@@ -153,6 +153,11 @@ include '../Modulos/head.php';
         opacity: 0.75;
     }
 
+    .fc-event.calendar-event.event-type-reunion .fc-event-main {
+        background: linear-gradient(135deg, #ede9fe 0%, #ddd6fe 100%);
+        border-color: #8b5cf6;
+    }
+
     .calendar-legend .legend-badge {
         border-radius: 999px;
         font-size: 0.82rem;
@@ -306,6 +311,31 @@ include '../Modulos/head.php';
                         </p>
                         <ul class="list-group list-group-flush mt-3 d-none" id="available-slots-list"></ul>
                     </div>
+                    <div class="calendar-availability mb-4">
+                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                            <h6 class="fw-semibold mb-0">Reuniones internas</h6>
+                            <button type="button" class="btn btn-outline-primary btn-sm" id="open-meeting-modal">
+                                Agregar reunión
+                            </button>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm align-middle mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Título</th>
+                                        <th>Participantes</th>
+                                        <th>Inicio</th>
+                                        <th>Fin</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="meetings-table-body">
+                                    <tr>
+                                        <td colspan="4" class="text-muted">Sin reuniones registradas.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                     <div id="calendar"></div>
                 </div>
             </div>
@@ -325,7 +355,7 @@ include '../Modulos/head.php';
         <div class="col-12">
             <div class="card">
                 <div class="card-header">
-                    <h5 class="card-title mb-0">Detalles de la cita</h5>
+                    <h5 class="card-title mb-0">Detalles del evento</h5>
                 </div>
                 <div class="card-body">
                     <dl class="row mb-0">
@@ -453,6 +483,17 @@ include '../Modulos/head.php';
         const togglePastEventsButton = document.getElementById('toggle-past-events');
         const psychologistLegendRow = document.getElementById('psychologist-legend-row');
         const psychologistLegendContainer = document.getElementById('calendar-psychologist-legend');
+        const meetingsTableBody = document.getElementById('meetings-table-body');
+        const openMeetingModalButton = document.getElementById('open-meeting-modal');
+        const meetingModalElement = document.getElementById('meetingModal');
+        const saveMeetingButton = document.getElementById('saveMeetingBtn');
+        const meetingParticipantsSelect = document.getElementById('meetingParticipants');
+        const meetingTitleInput = document.getElementById('meetingTitle');
+        const meetingDescriptionInput = document.getElementById('meetingDescription');
+        const meetingStartInput = document.getElementById('meetingStart');
+        const meetingEndInput = document.getElementById('meetingEnd');
+        const meetingForm = document.getElementById('meetingForm');
+        let meetingModal = null;
 
         function getPsychologistDisplayName(value) {
             if (typeof value !== 'string') {
@@ -926,7 +967,7 @@ include '../Modulos/head.php';
         }
 
         function loadPsychologists() {
-            if (!psychologistSelect) {
+            if (!psychologistSelect && !meetingParticipantsSelect) {
                 return;
             }
 
@@ -943,6 +984,7 @@ include '../Modulos/head.php';
                     }
 
                     const fragment = document.createDocumentFragment();
+                    const fragmentMeeting = document.createDocumentFragment();
 
                     payload.forEach(function (item) {
                         if (!item || !item.id) {
@@ -953,12 +995,170 @@ include '../Modulos/head.php';
                         option.value = item.id;
                         option.textContent = item.name || 'Psicóloga sin nombre';
                         fragment.appendChild(option);
+
+                        const optionMeeting = document.createElement('option');
+                        optionMeeting.value = item.id;
+                        optionMeeting.textContent = item.name || 'Psicóloga sin nombre';
+                        fragmentMeeting.appendChild(optionMeeting);
                     });
 
-                    psychologistSelect.appendChild(fragment);
+                    if (psychologistSelect) {
+                        psychologistSelect.appendChild(fragment);
+                    }
+
+                    if (meetingParticipantsSelect) {
+                        meetingParticipantsSelect.innerHTML = '';
+                        meetingParticipantsSelect.appendChild(fragmentMeeting);
+                    }
                 })
                 .catch(function (error) {
                     console.error(error);
+                });
+        }
+
+        function formatDateTimeForTable(value) {
+            if (!value) {
+                return 'Sin registro';
+            }
+            const date = new Date(value);
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+                return 'Sin registro';
+            }
+            return dateFormatter.format(date);
+        }
+
+        function renderMeetingsTable(meetings) {
+            if (!meetingsTableBody) {
+                return;
+            }
+
+            meetingsTableBody.innerHTML = '';
+
+            if (!Array.isArray(meetings) || meetings.length === 0) {
+                meetingsTableBody.innerHTML = '<tr><td colspan="4" class="text-muted">Sin reuniones registradas.</td></tr>';
+                return;
+            }
+
+            meetings.forEach(function (meeting) {
+                const tr = document.createElement('tr');
+
+                const tdTitulo = document.createElement('td');
+                tdTitulo.textContent = meeting.titulo || 'Sin título';
+
+                const tdParticipantes = document.createElement('td');
+                tdParticipantes.textContent = meeting.psicologos || 'Sin participantes';
+
+                const tdInicio = document.createElement('td');
+                tdInicio.textContent = formatDateTimeForTable(meeting.inicio);
+
+                const tdFin = document.createElement('td');
+                tdFin.textContent = formatDateTimeForTable(meeting.fin);
+
+                tr.appendChild(tdTitulo);
+                tr.appendChild(tdParticipantes);
+                tr.appendChild(tdInicio);
+                tr.appendChild(tdFin);
+
+                meetingsTableBody.appendChild(tr);
+            });
+        }
+
+        function loadMeetingsTable() {
+            fetch('../api/reuniones.php', { credentials: 'same-origin' })
+                .then(function (response) {
+                    if (!response.ok) {
+                        throw new Error('No se pudo obtener la tabla de reuniones.');
+                    }
+                    return response.json();
+                })
+                .then(function (payload) {
+                    if (!payload || payload.success !== true || !Array.isArray(payload.data)) {
+                        throw new Error('Formato de reuniones inválido.');
+                    }
+                    renderMeetingsTable(payload.data);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    if (meetingsTableBody) {
+                        meetingsTableBody.innerHTML = '<tr><td colspan="4" class="text-danger">No fue posible cargar reuniones.</td></tr>';
+                    }
+                });
+        }
+
+        function getSelectedMeetingParticipants() {
+            if (!meetingParticipantsSelect) {
+                return [];
+            }
+
+            return Array.from(meetingParticipantsSelect.selectedOptions).map(function (option) {
+                return option.value;
+            });
+        }
+
+        function openMeetingModal() {
+            if (!meetingModalElement || typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+                showAlert('No se pudo abrir el formulario de reunión.', 'danger');
+                return;
+            }
+
+            if (!meetingModal) {
+                meetingModal = new bootstrap.Modal(meetingModalElement);
+            }
+
+            if (meetingForm) {
+                meetingForm.reset();
+            }
+
+            meetingModal.show();
+        }
+
+        function saveMeeting() {
+            const titulo = meetingTitleInput ? meetingTitleInput.value.trim() : '';
+            const descripcion = meetingDescriptionInput ? meetingDescriptionInput.value.trim() : '';
+            const inicio = meetingStartInput ? meetingStartInput.value : '';
+            const fin = meetingEndInput ? meetingEndInput.value : '';
+            const psicologos = getSelectedMeetingParticipants();
+
+            if (!titulo || !inicio || !fin || psicologos.length === 0) {
+                showAlert('Completa título, fecha inicio, fecha fin y al menos una psicóloga.', 'warning');
+                return;
+            }
+
+            fetch('../api/reuniones.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    titulo: titulo,
+                    descripcion: descripcion,
+                    inicio: inicio,
+                    fin: fin,
+                    psicologos: psicologos
+                })
+            })
+                .then(function (response) {
+                    return response.json().then(function (data) {
+                        return { ok: response.ok, data: data };
+                    });
+                })
+                .then(function (result) {
+                    if (!result.ok || !result.data || result.data.success !== true) {
+                        throw new Error(result.data && result.data.message ? result.data.message : 'No se pudo guardar la reunión.');
+                    }
+
+                    if (meetingModal) {
+                        meetingModal.hide();
+                    }
+
+                    showTemporaryAlert('Reunión guardada correctamente.', 'success');
+                    loadMeetingsTable();
+                    calendar.refetchEvents();
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No fue posible guardar la reunión.', 'danger');
                 });
         }
 
@@ -1270,23 +1470,25 @@ include '../Modulos/head.php';
 
         if (detailReprogramButton) {
             detailReprogramButton.addEventListener('click', function () {
-                if (!selectedEventId) {
+                const citaId = detailReprogramButton.dataset.citaId || '';
+                if (!citaId) {
                     showAlert('Selecciona una cita para reprogramar.', 'warning');
                     return;
                 }
 
-                openReprogramModalForCita(selectedEventId);
+                openReprogramModalForCita(citaId);
             });
         }
 
         if (detailCancelButton) {
             detailCancelButton.addEventListener('click', function () {
-                if (!selectedEventId) {
+                const citaId = detailCancelButton.dataset.citaId || '';
+                if (!citaId) {
                     showAlert('Selecciona una cita para cancelar.', 'warning');
                     return;
                 }
 
-                sendCancelRequest(selectedEventId);
+                sendCancelRequest(citaId);
             });
         }
 
@@ -1296,12 +1498,14 @@ include '../Modulos/head.php';
             }
 
             const props = event.extendedProps || {};
+            const eventKind = props.eventKind || 'cita';
+            const isMeeting = eventKind === 'reunion';
 
             const reprogramCount = normalizeCount(props.solicitudesReprogramacionPendientes);
             const cancelCount = normalizeCount(props.solicitudesCancelacionPendientes);
 
             if (detailFields.paciente) {
-                detailFields.paciente.textContent = props.paciente || 'Sin registro';
+                detailFields.paciente.textContent = isMeeting ? 'No aplica (reunión interna)' : (props.paciente || 'Sin registro');
             }
 
             if (detailFields.psicologo) {
@@ -1331,7 +1535,7 @@ include '../Modulos/head.php';
             }
 
             if (detailFields.forma) {
-                detailFields.forma.textContent = props.forma_pago || 'No especificado';
+                detailFields.forma.textContent = isMeeting ? 'No aplica' : (props.forma_pago || 'No especificado');
             }
 
             if (detailFields.costo) {
@@ -1342,11 +1546,19 @@ include '../Modulos/head.php';
             }
 
             if (detailFields.reprogramRequests) {
-                setRequestBadge(detailFields.reprogramRequests, reprogramCount);
+                if (isMeeting) {
+                    detailFields.reprogramRequests.innerHTML = '<span class="badge bg-secondary">No aplica</span>';
+                } else {
+                    setRequestBadge(detailFields.reprogramRequests, reprogramCount);
+                }
             }
 
             if (detailFields.cancelRequests) {
-                setRequestBadge(detailFields.cancelRequests, cancelCount);
+                if (isMeeting) {
+                    detailFields.cancelRequests.innerHTML = '<span class="badge bg-secondary">No aplica</span>';
+                } else {
+                    setRequestBadge(detailFields.cancelRequests, cancelCount);
+                }
             }
 
             if (detailFields.inicio) {
@@ -1366,19 +1578,21 @@ include '../Modulos/head.php';
             }
 
             if (detailReprogramButton) {
-                detailReprogramButton.dataset.citaId = event.id || '';
+                detailReprogramButton.dataset.citaId = props.entityId || '';
                 detailReprogramButton.textContent = 'Reprogramar';
-                const editable = Boolean(props.isEditable) && !isCancelled;
-                detailReprogramButton.disabled = !editable || !event.id;
+                const editable = !isMeeting && Boolean(props.isEditable) && !isCancelled;
+                detailReprogramButton.disabled = !editable || !props.entityId;
                 if (!editable) {
-                    helperMessages.push('La cita no se puede reprogramar desde el calendario.');
+                    helperMessages.push(isMeeting
+                        ? 'Las reuniones internas no se reprograman desde este botón.'
+                        : 'La cita no se puede reprogramar desde el calendario.');
                 }
             }
 
             if (detailCancelButton) {
-                detailCancelButton.dataset.citaId = event.id || '';
-                detailCancelButton.textContent = 'Cancelar';
-                detailCancelButton.disabled = !event.id || isCancelled;
+                detailCancelButton.dataset.citaId = props.entityId || '';
+                detailCancelButton.textContent = isMeeting ? 'No disponible' : 'Cancelar';
+                detailCancelButton.disabled = isMeeting || !props.entityId || isCancelled;
             }
 
             if (isCancelled) {
@@ -1460,14 +1674,21 @@ include '../Modulos/head.php';
                         const todayTimestamp = todayStart.getTime();
 
                         const events = payload.data.map(function (item) {
+                            const eventKind = item.event_kind === 'reunion' ? 'reunion' : 'cita';
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
                             const paciente = item.paciente || 'Sin registro';
                             const psicologo = getPsychologistDisplayName(item.psicologo);
-                            const title = 'Paciente: ' + paciente + ' | Psicóloga: ' + psicologo;
+                            const meetingTitle = item.tipo || 'Reunión interna';
+                            const title = eventKind === 'reunion'
+                                ? ('Reunión: ' + meetingTitle)
+                                : ('Paciente: ' + paciente + ' | Psicóloga: ' + psicologo);
 
                             const classNames = ['calendar-event'];
                             if (statusStyle.eventClass) {
                                 classNames.push(statusStyle.eventClass);
+                            }
+                            if (eventKind === 'reunion') {
+                                classNames.push('event-type-reunion');
                             }
 
                             const psicologoColorHex = normalizeHexColor(item.psicologo_color);
@@ -1479,7 +1700,7 @@ include '../Modulos/head.php';
                             const rawStartTimestamp = hasValidStart ? startDate.getTime() : NaN;
                             const rawEndTimestamp = hasValidEnd ? endDate.getTime() : NaN;
                             const isPaid = isFormaPagoRegistrada(item.forma_pago);
-                            const isEditable = Boolean(
+                            const isEditable = eventKind === 'cita' && Boolean(
                                 hasValidStart &&
                                 hasValidEnd &&
                                 isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)
@@ -1505,6 +1726,8 @@ include '../Modulos/head.php';
                                 startEditable: isEditable,
                                 durationEditable: false,
                                 extendedProps: {
+                                    eventKind: eventKind,
+                                    entityId: item.entity_id || null,
                                     paciente: paciente,
                                     psicologo: psicologo,
                                     estatus: item.estatus,
@@ -1564,6 +1787,7 @@ include '../Modulos/head.php';
                 return dropInfo.start.getTime() >= todayTimestamp;
             },
             eventContent: function (arg) {
+                const isMeeting = (arg.event.extendedProps && arg.event.extendedProps.eventKind === 'reunion');
                 const content = document.createElement('div');
                 content.classList.add('calendar-event-body');
 
@@ -1574,7 +1798,9 @@ include '../Modulos/head.php';
 
                 const paciente = document.createElement('span');
                 paciente.classList.add('calendar-event-paciente');
-                paciente.textContent = arg.event.extendedProps.paciente || 'Sin registro';
+                paciente.textContent = isMeeting
+                    ? (arg.event.extendedProps.tipo || 'Reunión interna')
+                    : (arg.event.extendedProps.paciente || 'Sin registro');
                 content.appendChild(paciente);
 
                 if (arg.event.extendedProps.psicologo) {
@@ -1624,6 +1850,12 @@ include '../Modulos/head.php';
             },
             eventDrop: function (info) {
                 const event = info.event;
+                const props = event.extendedProps || {};
+                if (props.eventKind !== 'cita' || !props.entityId) {
+                    info.revert();
+                    return;
+                }
+
                 const newStart = event.start;
 
                 if (!newStart) {
@@ -1636,7 +1868,7 @@ include '../Modulos/head.php';
                     programado: newStart.toISOString()
                 };
 
-                fetch('../api/citas.php?id=' + encodeURIComponent(event.id), {
+                fetch('../api/citas.php?id=' + encodeURIComponent(props.entityId), {
                     method: 'PUT',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1827,9 +2059,58 @@ include '../Modulos/head.php';
             });
         }
 
+        if (openMeetingModalButton) {
+            openMeetingModalButton.addEventListener('click', openMeetingModal);
+        }
+
+        if (saveMeetingButton) {
+            saveMeetingButton.addEventListener('click', saveMeeting);
+        }
+
+        loadMeetingsTable();
         calendar.render();
     });
 </script>
+
+<div class="modal fade" id="meetingModal" tabindex="-1" aria-labelledby="meetingModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="meetingModalLabel">Agregar reunión interna</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="meetingForm">
+                    <div class="mb-3">
+                        <label for="meetingTitle" class="form-label">Título</label>
+                        <input type="text" class="form-control" id="meetingTitle" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="meetingDescription" class="form-label">Descripción (opcional)</label>
+                        <textarea class="form-control" id="meetingDescription" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label for="meetingStart" class="form-label">Inicio</label>
+                        <input type="datetime-local" class="form-control" id="meetingStart" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="meetingEnd" class="form-label">Fin</label>
+                        <input type="datetime-local" class="form-control" id="meetingEnd" required>
+                    </div>
+                    <div class="mb-0">
+                        <label for="meetingParticipants" class="form-label">Psicólogas participantes</label>
+                        <select id="meetingParticipants" class="form-select" multiple size="8" required></select>
+                        <small class="text-muted">Usa Ctrl/Cmd + click para seleccionar varias.</small>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                <button type="button" class="btn btn-primary" id="saveMeetingBtn">Guardar reunión</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <?php
 include '../Modulos/footer.php';
