@@ -14,31 +14,8 @@ function respuesta(int $status, array $data): void
     exit;
 }
 
-function tablaExiste(mysqli $conn, string $tabla): bool
-{
-    $stmt = $conn->prepare('SHOW TABLES LIKE ?');
-    if (!$stmt) {
-        return false;
-    }
-
-    $stmt->bind_param('s', $tabla);
-    $stmt->execute();
-    $stmt->store_result();
-    $existe = $stmt->num_rows > 0;
-    $stmt->close();
-
-    return $existe;
-}
-
 $conn = conectar();
 $conn->set_charset('utf8mb4');
-
-if (!tablaExiste($conn, 'ReunionInterna') || !tablaExiste($conn, 'ReunionInternaPsicologo')) {
-    respuesta(500, [
-        'success' => false,
-        'message' => 'No existen las tablas de reuniones internas. Ejecuta el script sql/reuniones_internas.sql.'
-    ]);
-}
 
 $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 

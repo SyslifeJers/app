@@ -1123,7 +1123,13 @@ include '../Modulos/head.php';
                 showAlert('Completa título, fecha inicio, fecha fin y al menos una psicóloga.', 'warning');
                 return;
             }
-
+            console.log(JSON.stringify({
+                    titulo: titulo,
+                    descripcion: descripcion,
+                    inicio: inicio,
+                    fin: fin,
+                    psicologos: psicologos
+                }));
             fetch('../api/reuniones.php', {
                 method: 'POST',
                 headers: {
