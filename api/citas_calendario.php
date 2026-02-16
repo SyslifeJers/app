@@ -6,9 +6,6 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../conexion.php';
 
-/**
- * Envía una respuesta JSON estandarizada y termina la ejecución.
- */
 function jsonResponse(int $statusCode, array $payload): void
 {
     http_response_code($statusCode);
@@ -18,9 +15,6 @@ function jsonResponse(int $statusCode, array $payload): void
 
 $timezone = new DateTimeZone('America/Mexico_City');
 
-/**
- * Normaliza un valor recibido como parámetro de fecha.
- */
 function normalizarParametro(?string $valor, DateTimeZone $tz, string $campo): ?string
 {
     if ($valor === null) {
@@ -41,17 +35,28 @@ function normalizarParametro(?string $valor, DateTimeZone $tz, string $campo): ?
     }
 
     $fecha->setTimezone($tz);
-
     return $fecha->format('Y-m-d H:i:s');
 }
 
 function toLowerUtf8(string $valor): string
 {
-    if (function_exists('mb_strtolower')) {
-        return mb_strtolower($valor, 'UTF-8');
+    return function_exists('mb_strtolower') ? mb_strtolower($valor, 'UTF-8') : strtolower($valor);
+}
+
+function tablaExiste(mysqli $conn, string $tabla): bool
+{
+    $stmt = $conn->prepare('SHOW TABLES LIKE ?');
+    if (!$stmt) {
+        return false;
     }
 
-    return strtolower($valor);
+    $stmt->bind_param('s', $tabla);
+    $stmt->execute();
+    $stmt->store_result();
+    $existe = $stmt->num_rows > 0;
+    $stmt->close();
+
+    return $existe;
 }
 
 $conn = conectar();
@@ -69,7 +74,6 @@ if (array_key_exists('psicologo_id', $_GET)) {
         }
 
         $psicologoId = (int) $psicologoRaw;
-
         if ($psicologoId <= 0) {
             jsonResponse(400, ['error' => 'El parámetro psicologo_id debe ser mayor que cero.']);
         }
@@ -79,7 +83,6 @@ if (array_key_exists('psicologo_id', $_GET)) {
 $pacienteFiltro = null;
 if (array_key_exists('paciente', $_GET)) {
     $pacienteRaw = trim((string) $_GET['paciente']);
-
     if ($pacienteRaw !== '') {
         $pacienteFiltro = toLowerUtf8($pacienteRaw);
     }
@@ -115,11 +118,7 @@ if ($pacienteFiltro !== null) {
     $parametros[] = '%' . $pacienteFiltro . '%';
 }
 
-$tablaSolicitudesExiste = false;
-if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")) {
-    $tablaSolicitudesExiste = $resultadoTabla->num_rows > 0;
-    $resultadoTabla->free();
-}
+$tablaSolicitudesExiste = tablaExiste($conn, 'SolicitudReprogramacion');
 
 $selectSolicitudesReprogramacion = $tablaSolicitudesExiste
     ? ",\n               COALESCE(sr_reprogramacion.solicitudesPendientes, 0) AS solicitudesReprogramacionPendientes"
@@ -182,7 +181,6 @@ $eventos = [];
 
 while ($fila = $resultado->fetch_assoc()) {
     $inicio = DateTime::createFromFormat('Y-m-d H:i:s', $fila['Programado'], $timezone);
-
     if ($inicio === false) {
         continue;
     }
@@ -191,7 +189,9 @@ while ($fila = $resultado->fetch_assoc()) {
     $fin->modify('+1 hour');
 
     $eventos[] = [
-        'id' => (int) $fila['id'],
+        'id' => 'cita-' . (int) $fila['id'],
+        'event_kind' => 'cita',
+        'entity_id' => (int) $fila['id'],
         'paciente' => $fila['paciente'],
         'psicologo' => $fila['psicologo'],
         'psicologo_id' => (int) $fila['psicologo_id'],
@@ -210,8 +210,104 @@ while ($fila = $resultado->fetch_assoc()) {
             : 0,
     ];
 }
-
 $stmt->close();
-$conn->close();
 
+$tablaReunionesExiste = tablaExiste($conn, 'ReunionInterna');
+$tablaParticipantesExiste = tablaExiste($conn, 'ReunionInternaPsicologo');
+
+if ($tablaReunionesExiste && $tablaParticipantesExiste) {
+    $condicionesReunion = [];
+    $tiposReunion = '';
+    $paramsReunion = [];
+
+    if ($fechaInicio !== null) {
+        $condicionesReunion[] = 'ri.inicio >= ?';
+        $tiposReunion .= 's';
+        $paramsReunion[] = $fechaInicio;
+    }
+
+    if ($fechaFin !== null) {
+        $condicionesReunion[] = 'ri.inicio < ?';
+        $tiposReunion .= 's';
+        $paramsReunion[] = $fechaFin;
+    }
+
+    if ($psicologoId !== null) {
+        $condicionesReunion[] = 'EXISTS (
+            SELECT 1 FROM ReunionInternaPsicologo ripf
+            WHERE ripf.reunion_id = ri.id AND ripf.psicologo_id = ?
+        )';
+        $tiposReunion .= 'i';
+        $paramsReunion[] = $psicologoId;
+    }
+
+    if ($pacienteFiltro !== null) {
+        $condicionesReunion[] = '(LOWER(ri.titulo) LIKE ? OR LOWER(ri.descripcion) LIKE ?)';
+        $tiposReunion .= 'ss';
+        $paramsReunion[] = '%' . $pacienteFiltro . '%';
+        $paramsReunion[] = '%' . $pacienteFiltro . '%';
+    }
+
+    $sqlReuniones = "SELECT
+            ri.id,
+            ri.titulo,
+            ri.descripcion,
+            ri.inicio,
+            ri.fin,
+            GROUP_CONCAT(DISTINCT u.name ORDER BY u.name SEPARATOR ', ') AS psicologos
+        FROM ReunionInterna ri
+        INNER JOIN ReunionInternaPsicologo rip ON rip.reunion_id = ri.id
+        INNER JOIN Usuarios u ON u.id = rip.psicologo_id";
+
+    if ($condicionesReunion !== []) {
+        $sqlReuniones .= ' WHERE ' . implode(' AND ', $condicionesReunion);
+    }
+
+    $sqlReuniones .= ' GROUP BY ri.id, ri.titulo, ri.descripcion, ri.inicio, ri.fin ORDER BY ri.inicio ASC';
+
+    $stmtReunion = $conn->prepare($sqlReuniones);
+    if ($stmtReunion) {
+        if ($tiposReunion !== '') {
+            $stmtReunion->bind_param($tiposReunion, ...$paramsReunion);
+        }
+
+        if ($stmtReunion->execute()) {
+            $resultReunion = $stmtReunion->get_result();
+            while ($filaReunion = $resultReunion->fetch_assoc()) {
+                $inicioReunion = DateTime::createFromFormat('Y-m-d H:i:s', $filaReunion['inicio'], $timezone);
+                $finReunion = DateTime::createFromFormat('Y-m-d H:i:s', $filaReunion['fin'], $timezone);
+                if (!$inicioReunion || !$finReunion) {
+                    continue;
+                }
+
+                $eventos[] = [
+                    'id' => 'reunion-' . (int) $filaReunion['id'],
+                    'event_kind' => 'reunion',
+                    'entity_id' => (int) $filaReunion['id'],
+                    'paciente' => null,
+                    'psicologo' => $filaReunion['psicologos'],
+                    'psicologo_id' => null,
+                    'psicologo_color' => null,
+                    'programado' => $inicioReunion->format(DateTime::ATOM),
+                    'termina' => $finReunion->format(DateTime::ATOM),
+                    'estatus' => 'Reunión interna',
+                    'tipo' => $filaReunion['titulo'],
+                    'forma_pago' => 'No aplica',
+                    'costo' => 0,
+                    'descripcion' => $filaReunion['descripcion'],
+                    'solicitudesReprogramacionPendientes' => 0,
+                    'solicitudesCancelacionPendientes' => 0,
+                ];
+            }
+        }
+
+        $stmtReunion->close();
+    }
+}
+
+usort($eventos, static function (array $a, array $b): int {
+    return strcmp((string) ($a['programado'] ?? ''), (string) ($b['programado'] ?? ''));
+});
+
+$conn->close();
 jsonResponse(200, ['data' => $eventos]);
