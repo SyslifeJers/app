@@ -176,6 +176,11 @@ $condicionesReunion = [];
 $tiposReunion = '';
 $parametrosReunion = [];
 
+$ahora = new DateTime('now', $timezone);
+$condicionesReunion[] = 'ri.fin >= ?';
+$tiposReunion .= 's';
+$parametrosReunion[] = $ahora->format('Y-m-d H:i:s');
+
     if ($fechaInicio !== null) {
         $condicionesReunion[] = 'ri.fin >= ?';
         $tiposReunion .= 's';
