@@ -130,13 +130,59 @@ if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
         $stmtPendientes->close();
     }
 }
+
+$reunionesProgramadas = [];
+$reunionesProgramadasTotal = 0;
+$fechaHoraActual = (new DateTime('now', $zonaHorariaApp))->format('Y-m-d H:i:s');
+
+$sqlReunionesProgramadas = "SELECT
+    ri.id,
+    ri.titulo,
+    ri.inicio,
+    ri.fin,
+    GROUP_CONCAT(u.name ORDER BY u.name SEPARATOR ', ') AS psicologos
+FROM ReunionInterna ri
+INNER JOIN ReunionInternaPsicologo rip ON rip.reunion_id = ri.id
+INNER JOIN Usuarios u ON u.id = rip.psicologo_id
+WHERE ri.fin >= ?
+GROUP BY ri.id, ri.titulo, ri.inicio, ri.fin
+ORDER BY ri.inicio ASC
+LIMIT 100";
+
+if ($stmtReunionesProgramadas = $conn->prepare($sqlReunionesProgramadas)) {
+    $stmtReunionesProgramadas->bind_param('s', $fechaHoraActual);
+    if ($stmtReunionesProgramadas->execute()) {
+        $resultadoReunionesProgramadas = $stmtReunionesProgramadas->get_result();
+        while ($filaReunion = $resultadoReunionesProgramadas->fetch_assoc()) {
+            $reunionesProgramadas[] = [
+                'id' => (int) $filaReunion['id'],
+                'titulo' => (string) ($filaReunion['titulo'] ?? 'Reunión interna'),
+                'inicio' => (string) ($filaReunion['inicio'] ?? ''),
+                'fin' => (string) ($filaReunion['fin'] ?? ''),
+                'psicologos' => (string) ($filaReunion['psicologos'] ?? ''),
+            ];
+        }
+    }
+    $stmtReunionesProgramadas->close();
+}
+
+$reunionesProgramadasTotal = count($reunionesProgramadas);
 ?>
 
 <div class="row">
   <div class="col-md-12">
     <div class="card">
       <div class="card-header">
-        <h4 class="card-title">Citas</h4>
+        <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-md-between gap-2">
+          <h4 class="card-title mb-0">Citas</h4>
+          <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalReunionesProgramadas">
+            <i class="far fa-calendar-alt me-1"></i>
+            Reuniones programadas
+            <?php if ($reunionesProgramadasTotal > 0): ?>
+              <span class="badge bg-primary ms-1"><?php echo (int) $reunionesProgramadasTotal; ?></span>
+            <?php endif; ?>
+          </button>
+        </div>
       </div>
       <div class="card-body">
         <?php if ($mensajeCorteCaja !== null): ?>
@@ -584,6 +630,50 @@ $result = $stmt->get_result();
           <button type="submit" class="btn btn-primary">Guardar efectivo inicial</button>
         </div>
       </form>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalReunionesProgramadas" tabindex="-1" aria-labelledby="modalReunionesProgramadasLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalReunionesProgramadasLabel">Reuniones programadas</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <?php if ($reunionesProgramadasTotal > 0): ?>
+          <div class="table-responsive">
+            <table class="table table-striped table-sm align-middle mb-0">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Título</th>
+                  <th>Inicio</th>
+                  <th>Fin</th>
+                  <th>Psicólogas</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($reunionesProgramadas as $reunion): ?>
+                  <tr>
+                    <td><?php echo (int) $reunion['id']; ?></td>
+                    <td><?php echo htmlspecialchars($reunion['titulo'], ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td><?php echo htmlspecialchars($reunion['inicio'], ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td><?php echo htmlspecialchars($reunion['fin'], ENT_QUOTES, 'UTF-8'); ?></td>
+                    <td><?php echo htmlspecialchars($reunion['psicologos'], ENT_QUOTES, 'UTF-8'); ?></td>
+                  </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+          </div>
+        <?php else: ?>
+          <p class="text-muted mb-0">No hay reuniones programadas por mostrar.</p>
+        <?php endif; ?>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
     </div>
   </div>
 </div>
