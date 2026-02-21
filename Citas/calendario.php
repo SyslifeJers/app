@@ -355,29 +355,6 @@ include '../Modulos/head.php';
                     </div>
 
                     <div id="calendar"></div>
-                                        <div class="calendar-availability mb-4">
-                        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
-                            <h6 class="fw-semibold mb-0">Reuniones internas</h6>
-
-                        </div>
-                        <div class="table-responsive">
-                            <table class="table table-sm align-middle mb-0">
-                                <thead>
-                                    <tr>
-                                        <th>Título</th>
-                                        <th>Participantes</th>
-                                        <th>Inicio</th>
-                                        <th>Fin</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="meetings-table-body">
-                                    <tr>
-                                        <td colspan="4" class="text-muted">Sin reuniones registradas.</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>
@@ -460,6 +437,33 @@ include '../Modulos/head.php';
             <div class="d-flex flex-wrap gap-2 calendar-psychologist-legend" id="calendar-psychologist-legend"></div>
         </div>
     </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="calendar-availability">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+                    <h6 class="fw-semibold mb-0">Reuniones internas</h6>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-sm table-striped table-hover align-middle mb-0" id="meetingsTable">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Título</th>
+                                <th>Participantes</th>
+                                <th>Inicio</th>
+                                <th>Fin</th>
+                            </tr>
+                        </thead>
+                        <tbody id="meetings-table-body">
+                            <tr>
+                                <td colspan="4" class="text-muted">Sin reuniones registradas.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <div class="modal fade" id="updateModal" tabindex="-1" aria-labelledby="updateModalLabel" aria-hidden="true">
@@ -493,6 +497,7 @@ include '../Modulos/head.php';
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales-all.global.min.js"></script>
 <script>
+    
     document.addEventListener('DOMContentLoaded', function () {
         const calendarElement = document.getElementById('calendar');
         if (!calendarElement) {
@@ -524,6 +529,7 @@ include '../Modulos/head.php';
         const togglePastEventsButton = document.getElementById('toggle-past-events');
         const psychologistLegendRow = document.getElementById('psychologist-legend-row');
         const psychologistLegendContainer = document.getElementById('calendar-psychologist-legend');
+        const meetingsTableElement = document.getElementById('meetingsTable');
         const meetingsTableBody = document.getElementById('meetings-table-body');
         const openMeetingModalButton = document.getElementById('open-meeting-modal');
         const meetingModalElement = document.getElementById('meetingModal');
@@ -535,6 +541,7 @@ include '../Modulos/head.php';
         const meetingEndInput = document.getElementById('meetingEnd');
         const meetingForm = document.getElementById('meetingForm');
         let meetingModal = null;
+        let meetingsDataTable = null;
 
         function getPsychologistDisplayName(value) {
             if (typeof value !== 'string') {
@@ -1068,7 +1075,89 @@ include '../Modulos/head.php';
             return dateFormatter.format(date);
         }
 
+        function ensureMeetingsDataTable() {
+            if (meetingsDataTable || !meetingsTableElement) {
+                return;
+            }
+
+            if (typeof window.jQuery === 'undefined' || !window.jQuery.fn || typeof window.jQuery.fn.DataTable !== 'function') {
+                return;
+            }
+
+            if (meetingsTableBody) {
+                meetingsTableBody.innerHTML = '';
+            }
+
+            meetingsDataTable = window.jQuery(meetingsTableElement).DataTable({
+                data: [],
+                columns: [
+                    {
+                        data: 'titulo',
+                        render: function (data) {
+                            const value = typeof data === 'string' ? data.trim() : '';
+                            return value !== '' ? value : 'Sin título';
+                        }
+                    },
+                    {
+                        data: 'psicologos',
+                        render: function (data) {
+                            const value = typeof data === 'string' ? data.trim() : '';
+                            return value !== '' ? value : 'Sin participantes';
+                        }
+                    },
+                    {
+                        data: 'inicio',
+                        render: function (data, type) {
+                            if (type === 'sort' || type === 'type') {
+                                return data || '';
+                            }
+                            return formatDateTimeForTable(data);
+                        }
+                    },
+                    {
+                        data: 'fin',
+                        render: function (data, type) {
+                            if (type === 'sort' || type === 'type') {
+                                return data || '';
+                            }
+                            return formatDateTimeForTable(data);
+                        }
+                    }
+                ],
+                order: [[2, 'asc']],
+                pageLength: 10,
+                lengthMenu: [5, 10, 25, 50, 100],
+                language: {
+                    lengthMenu: 'Mostrar _MENU_ reuniones',
+                    zeroRecords: 'No se encontraron reuniones',
+                    info: 'Mostrando _START_ a _END_ de _TOTAL_ reuniones',
+                    infoEmpty: 'Sin reuniones registradas',
+                    infoFiltered: '(filtrado de _MAX_ reuniones)',
+                    search: 'Buscar:',
+                    emptyTable: 'Sin reuniones registradas.',
+                    paginate: {
+                        first: 'Primero',
+                        last: 'Último',
+                        next: 'Siguiente',
+                        previous: 'Anterior'
+                    }
+                }
+            });
+        }
+
         function renderMeetingsTable(meetings) {
+            ensureMeetingsDataTable();
+
+            if (meetingsDataTable) {
+                const data = Array.isArray(meetings) ? meetings : [];
+                meetingsDataTable.clear();
+                if (data.length > 0) {
+                    meetingsDataTable.rows.add(data);
+                }
+                meetingsDataTable.draw();
+                return;
+            }
+
             if (!meetingsTableBody) {
                 return;
             }
@@ -1105,6 +1194,7 @@ include '../Modulos/head.php';
         }
 
         function loadMeetingsTable() {
+            ensureMeetingsDataTable();
             fetch('../api/reuniones.php', { credentials: 'same-origin' })
                 .then(function (response) {
                     if (!response.ok) {
@@ -1120,6 +1210,14 @@ include '../Modulos/head.php';
                 })
                 .catch(function (error) {
                     console.error(error);
+                    if (typeof showTemporaryAlert === 'function') {
+                        showTemporaryAlert('No fue posible cargar reuniones.', 'danger');
+                    }
+
+                    if (meetingsDataTable) {
+                        meetingsDataTable.clear().draw();
+                        return;
+                    }
                     if (meetingsTableBody) {
                         meetingsTableBody.innerHTML = '<tr><td colspan="4" class="text-danger">No fue posible cargar reuniones.</td></tr>';
                     }
