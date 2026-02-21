@@ -305,15 +305,20 @@ include '../Modulos/head.php';
 </style>
 
 <div class="page-inner">
-    <div class="page-header">
+    <div class="page-header d-flex justify-content-between align-items-start">
         <h3 class="fw-bold mb-3">Calendario de citas</h3>
-
+                    <div class="mb-3">
+                        <button type="button" class="btn btn-outline-primary " id="open-meeting-modal">
+                            Agregar reunión
+                        </button>
+                    </div>
         
     </div>
   <div class="row">
         <div class="col-12">
             <div class="card">
                 <div class="card-body calendar-wrapper">
+
                     <div class="row g-3 align-items-end mb-4 calendar-filter-row">
                         <div class="col-xl-3 col-lg-4 col-md-6 col-sm-12">
                             <label class="form-label" for="calendar-filter-psychologist">Filtrar por psicóloga</label>
@@ -348,12 +353,12 @@ include '../Modulos/head.php';
                         </p>
                         <ul class="list-group list-group-flush mt-3 d-none" id="available-slots-list"></ul>
                     </div>
-                    <div class="calendar-availability mb-4">
+
+                    <div id="calendar"></div>
+                                        <div class="calendar-availability mb-4">
                         <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
                             <h6 class="fw-semibold mb-0">Reuniones internas</h6>
-                            <button type="button" class="btn btn-outline-primary btn-sm" id="open-meeting-modal">
-                                Agregar reunión
-                            </button>
+
                         </div>
                         <div class="table-responsive">
                             <table class="table table-sm align-middle mb-0">
@@ -373,7 +378,6 @@ include '../Modulos/head.php';
                             </table>
                         </div>
                     </div>
-                    <div id="calendar"></div>
                 </div>
             </div>
         </div>

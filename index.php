@@ -144,13 +144,13 @@ $sqlReunionesProgramadas = "SELECT
 FROM ReunionInterna ri
 INNER JOIN ReunionInternaPsicologo rip ON rip.reunion_id = ri.id
 INNER JOIN Usuarios u ON u.id = rip.psicologo_id
-WHERE ri.fin >= ?
+WHERE ri.inicio >= ? AND ri.fin <= ?
 GROUP BY ri.id, ri.titulo, ri.inicio, ri.fin
 ORDER BY ri.inicio ASC
 LIMIT 100";
 
 if ($stmtReunionesProgramadas = $conn->prepare($sqlReunionesProgramadas)) {
-    $stmtReunionesProgramadas->bind_param('s', $fechaHoraActual);
+    $stmtReunionesProgramadas->bind_param('ss', $fechaHoraActual,$fechaHoraActual);
     if ($stmtReunionesProgramadas->execute()) {
         $resultadoReunionesProgramadas = $stmtReunionesProgramadas->get_result();
         while ($filaReunion = $resultadoReunionesProgramadas->fetch_assoc()) {
@@ -177,7 +177,7 @@ $reunionesProgramadasTotal = count($reunionesProgramadas);
           <h4 class="card-title mb-0">Citas</h4>
           <button type="button" class="btn btn-outline-primary btn-sm" data-bs-toggle="modal" data-bs-target="#modalReunionesProgramadas">
             <i class="far fa-calendar-alt me-1"></i>
-            Reuniones programadas
+            Reuniones programadas hoy
             <?php if ($reunionesProgramadasTotal > 0): ?>
               <span class="badge bg-primary ms-1"><?php echo (int) $reunionesProgramadasTotal; ?></span>
             <?php endif; ?>

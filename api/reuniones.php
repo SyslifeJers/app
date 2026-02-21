@@ -30,6 +30,7 @@ if ($metodo === 'GET') {
         FROM ReunionInterna ri
         INNER JOIN ReunionInternaPsicologo rip ON rip.reunion_id = ri.id
         INNER JOIN Usuarios u ON u.id = rip.psicologo_id
+        where ri.fin >= NOW()
         GROUP BY ri.id, ri.titulo, ri.descripcion, ri.inicio, ri.fin
         ORDER BY ri.inicio DESC
         LIMIT 200";
