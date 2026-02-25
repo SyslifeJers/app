@@ -124,8 +124,12 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
            <li class="nav-item ">
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Corte de caja <span class="sr-only"></span></a>
       </li>
-           <li class="nav-item ">
+            <li class="nav-item ">
         <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
+      </li>
+
+            <li class="nav-item ">
+        <a class="nav-link" href="/Diagnostico/index.php"><i class="fas fa-stethoscope"></i>Diagnostico <span class="sr-only"></span></a>
       </li>
       <?php if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
