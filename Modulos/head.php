@@ -30,7 +30,25 @@ if ($_SESSION['token'] !== $db_token) {
     exit();
 }
 $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
- ?>
+
+// Badge: citas de diagnostico para hoy.
+$diagnosticoCitasHoy = 0;
+try {
+    $fechaHoy = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
+        if ($stmtDiag = $conn->prepare('SELECT COUNT(*) FROM Cita WHERE diagnostico_id IS NOT NULL AND DATE(Programado) = ? AND Estatus IN (2, 3)')) {
+            $stmtDiag->bind_param('s', $fechaHoy);
+            $stmtDiag->execute();
+            $stmtDiag->bind_result($totalHoy);
+            if ($stmtDiag->fetch()) {
+                $diagnosticoCitasHoy = (int) $totalHoy;
+            }
+            $stmtDiag->close();
+        }
+    
+} catch (Throwable $e) {
+    $diagnosticoCitasHoy = 0;
+}
+  ?>
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -72,8 +90,23 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
     <link rel="stylesheet" href="../assets/css/kaiadmin.min.css" />
 
     <!-- CSS Just for demo purpose, don't include it in your project -->
-    <link rel="stylesheet" href="../assets/css/demo.css" />
+     <link rel="stylesheet" href="../assets/css/demo.css" />
 <link href="https://cdn.datatables.net/v/dt/dt-2.0.8/datatables.min.css" rel="stylesheet">
+
+    <style>
+      .nav-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 6px;
+        border-radius: 999px;
+        font-size: 11px;
+        line-height: 1;
+        font-weight: 700;
+      }
+    </style>
 
   </head>
   <body>
@@ -129,7 +162,7 @@ $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
       </li>
 
             <li class="nav-item ">
-        <a class="nav-link" href="/Diagnostico/index.php"><i class="fas fa-stethoscope"></i>Diagnostico <span class="sr-only"></span></a>
+        <a class="nav-link" href="/Diagnostico/index.php"><i class="fas fa-stethoscope"></i>Diagnostico<?php if ($diagnosticoCitasHoy > 0) { echo ' <span class="badge bg-danger nav-badge ms-2">' . (int) $diagnosticoCitasHoy . '</span>'; } ?> <span class="sr-only"></span></a>
       </li>
       <?php if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
