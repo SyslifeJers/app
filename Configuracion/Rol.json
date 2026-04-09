@@ -1,0 +1,14 @@
+[
+{"type":"header","version":"5.2.2","comment":"Export to JSON plugin for PHPMyAdmin"},
+{"type":"database","name":"u529445062_cenere"},
+{"type":"table","name":"Rol","database":"u529445062_cenere","data":
+[
+{"id":"1","name":"Ventas","activo":"1","Fecha":"2024-06-19"},
+{"id":"2","name":"Psicólogo","activo":"1","Fecha":"2024-06-19"},
+{"id":"3","name":"Administrador","activo":"1","Fecha":"2024-06-19"},
+{"id":"4","name":"CRM","activo":"1","Fecha":"2025-06-26"},
+{"id":"5","name":"Coordinador","activo":"1","Fecha":"2025-09-21"},
+{"id":"6","name":"Practicante","activo":"1","Fecha":"0000-00-00"}
+]
+}
+]

@@ -22,7 +22,7 @@ try {
             n.name AS paciente_nombre,
             us.id AS psicologo_id,
             us.name AS psicologo_nombre,
-            ci.costo,
+            cp.monto,
             ci.Programado,
             DATE_FORMAT(DATE(ci.Programado), '%d-%m-%Y') AS Fecha,
             TIME(ci.Programado) AS Hora,
@@ -34,6 +34,7 @@ try {
           INNER JOIN nino n ON n.id = ci.IdNino
           INNER JOIN Usuarios us ON us.id = ci.IdUsuario
           INNER JOIN Estatus es ON es.id = ci.Estatus
+          INNER JOIN CitaPagos cp on cp.cita_id = ci.id
           WHERE ci.id = ?";
 
   $stmt = $conn->prepare($sql);

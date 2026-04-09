@@ -44,3 +44,4 @@ if (!function_exists('ajustarSaldoPaciente')) {
         return $resultado;
     }
 }
+

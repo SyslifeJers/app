@@ -55,24 +55,24 @@ function validarEstadoTicket(?string $estado): ?string
 }
 
 $stmtT = $connAuth->prepare("SELECT t.id,
-                                 t.creado_por,
-                                 t.problema_general,
-                                 t.descripcion,
-                                 t.area_problema,
-                                 t.nino_id,
-                                 t.estado,
-                                 t.asignado_a,
-                                 t.created_at,
-                                 u.user AS creador_usuario,
-                                 u.name AS creador_nombre,
-                                 n.name AS nino_nombre,
-                                 ua.user AS asignado_usuario,
-                                 ua.name AS asignado_nombre
-                          FROM soporte_tickets t
-                          LEFT JOIN Usuarios u ON u.id = t.creado_por
-                          LEFT JOIN nino n ON n.id = t.nino_id
-                          LEFT JOIN Usuarios ua ON ua.id = t.asignado_a
-                          WHERE t.id = ?");
+                                  t.creado_por,
+                                  t.problema_general,
+                                  t.descripcion,
+                                  t.area_problema,
+                                  t.nino_id,
+                                  t.estado,
+                                  t.asignado_a,
+                                  t.created_at,
+                                  u.user AS creador_usuario,
+                                  u.name AS creador_nombre,
+                                  n.name AS nino_nombre,
+                                  ua.user AS asignado_usuario,
+                                  ua.name AS asignado_nombre
+                           FROM soporte_tickets t
+                           LEFT JOIN Usuarios u ON u.id = t.creado_por
+                           LEFT JOIN nino n ON n.id = t.nino_id
+                           LEFT JOIN Usuarios ua ON ua.id = t.asignado_a
+                           WHERE t.id = ?");
 if (!($stmtT instanceof mysqli_stmt)) {
     throw new RuntimeException('Error al preparar el ticket: ' . $connAuth->error);
 }

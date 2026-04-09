@@ -100,7 +100,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (isset($_FILES['capturas']) && is_array($_FILES['capturas']['name'] ?? null)) {
                     $names = $_FILES['capturas']['name'];
                     $tmpNames = $_FILES['capturas']['tmp_name'];
-                    $errorsFiles = $_FILES['capturas']['error'];
+                    $errors = $_FILES['capturas']['error'];
                     $sizes = $_FILES['capturas']['size'];
 
                     $maxBytes = 5 * 1024 * 1024;
@@ -111,11 +111,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ];
 
                     $finfo = new finfo(FILEINFO_MIME_TYPE);
-                    $baseDir = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'soporte_tickets' . DIRECTORY_SEPARATOR . $ticketId;
+                    $baseDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'soporte_tickets' . DIRECTORY_SEPARATOR . $ticketId;
                     $baseUrl = '/uploads/soporte_tickets/' . $ticketId;
 
                     for ($i = 0; $i < count($names); $i++) {
-                        if (($errorsFiles[$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+                        if (($errors[$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
                             continue;
                         }
                         $totalAdjuntos++;
@@ -123,7 +123,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             $erroresAdjuntos[] = 'Solo se permiten hasta 6 capturas.';
                             break;
                         }
-                        if (($errorsFiles[$i] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
+                        if (($errors[$i] ?? UPLOAD_ERR_OK) !== UPLOAD_ERR_OK) {
                             $erroresAdjuntos[] = 'Una de las capturas no se pudo subir.';
                             continue;
                         }

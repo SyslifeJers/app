@@ -35,9 +35,14 @@ if ($moduloFiltro !== '') {
 }
 
 $tablaLogsExiste = false;
-if ($resultado = $conn->query("SHOW TABLES LIKE 'LogSistema'")) {
-    $tablaLogsExiste = $resultado->num_rows > 0;
-    $resultado->free();
+try {
+    $resultado = $conn->query('SELECT 1 FROM LogSistema LIMIT 1');
+    if ($resultado instanceof mysqli_result) {
+        $tablaLogsExiste = true;
+        $resultado->free();
+    }
+} catch (Throwable $e) {
+    $tablaLogsExiste = false;
 }
 
 if (!$tablaLogsExiste) {

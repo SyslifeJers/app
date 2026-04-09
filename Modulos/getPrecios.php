@@ -7,7 +7,7 @@
 require_once __DIR__ . '/../conexion.php';
 $conn = conectar();
 
-$sql = "SELECT `id`, CONCAT( `name`, ': $' ,`costo` ) as name, `costo` FROM `Precios` WHERE `activo` = 1;";
+$sql = "SELECT `id`, `name` AS nombre, CONCAT(`name`, ': $', `costo`) AS name, `costo` FROM `Precios` WHERE `activo` = 1;";
 $result = $conn->query($sql);
 $users = $result->fetch_all(MYSQLI_ASSOC);
 echo json_encode($users);
