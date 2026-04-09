@@ -19,6 +19,11 @@ if (!isset($_SESSION['id'])) {
     responder(401, ['success' => false, 'message' => 'No autenticado.']);
 }
 
+$rolSesion = (int) ($_SESSION['rol'] ?? 0);
+if ($rolSesion === 1 || $rolSesion === 6) {
+    responder(403, ['success' => false, 'message' => 'No tienes permisos para realizar acciones de diagnostico.']);
+}
+
 $conn = conectar();
 if (!$conn) {
     responder(500, ['success' => false, 'message' => 'No fue posible conectar con la base de datos.']);

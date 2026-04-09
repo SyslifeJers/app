@@ -3,6 +3,10 @@ include '../Modulos/head.php';
 
 date_default_timezone_set('America/Mexico_City');
 
+$ROL_VENTAS = 1;
+$rolActual = isset($rol) ? (int) $rol : (int) ($_SESSION['rol'] ?? 0);
+$soloLectura = ($rolActual === $ROL_VENTAS);
+
 $hoy = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d');
 
 $citasHoy = [];
@@ -81,9 +85,15 @@ $procesos = [];
     <div class="page-header d-flex justify-content-between align-items-start flex-wrap gap-2">
         <h3 class="fw-bold mb-0">Diagnostico</h3>
         <div class="d-flex gap-2">
+            <?php if (!$soloLectura) { ?>
             <button type="button" class="btn btn-outline-primary" id="btnNuevoDiagnostico">Nuevo diagnostico</button>
+            <?php } ?>
         </div>
     </div>
+
+    <?php if ($soloLectura) { ?>
+        <div class="alert alert-info mt-3" role="alert">Modo solo lectura: tu rol no permite crear, agendar, reprogramar, finalizar o registrar pagos de diagnostico.</div>
+    <?php } ?>
 
 
 
@@ -148,8 +158,8 @@ $procesos = [];
                                             <td class="fw-semibold <?php echo $restante > 0.009 ? 'text-danger' : 'text-success'; ?>">$<?php echo number_format($restante, 2); ?></td>
                                             <td>
                                                 <div class="d-flex flex-wrap gap-2">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="reprogramar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>">Reprogramar</button>
-                                                    <button type="button" class="btn btn-sm btn-primary" data-action="finalizar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>">Finalizar</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="reprogramar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $soloLectura ? 'disabled' : ''; ?>>Reprogramar</button>
+                                                    <button type="button" class="btn btn-sm btn-primary" data-action="finalizar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $soloLectura ? 'disabled' : ''; ?>>Finalizar</button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -218,8 +228,8 @@ $procesos = [];
                                             <td><?php echo htmlspecialchars((string) ($row['estatus_nombre'] ?? $row['estatus_id']), ENT_QUOTES, 'UTF-8'); ?></td>
                                             <td>
                                                 <div class="d-flex flex-wrap gap-2">
-                                                    <button type="button" class="btn btn-sm btn-outline-primary" data-action="pagar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>">Registrar pago</button>
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="agendar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>">Agendar cita</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-primary" data-action="pagar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $soloLectura ? 'disabled' : ''; ?>>Registrar pago</button>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-action="agendar" data-payload="<?php echo htmlspecialchars(json_encode($payload), ENT_QUOTES, 'UTF-8'); ?>" <?php echo $soloLectura ? 'disabled' : ''; ?>>Agendar cita</button>
                                                 </div>
                                             </td>
                                         </tr>

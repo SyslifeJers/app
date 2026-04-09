@@ -35,16 +35,17 @@ if ($_SESSION['token'] !== $db_token) {
  $esPracticante = ($rol === $ROL_PRACTICANTE);
 
  if ($esPracticante) {
-     $requestUri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
-     $path = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '');
-     $permiteCalendario = $path !== '' && substr($path, -strlen('/Citas/calendario.php')) === '/Citas/calendario.php';
-     $permiteSalir = $path !== '' && substr($path, -strlen('/salir.php')) === '/salir.php';
+      $requestUri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
+      $path = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '');
+      $permiteCalendario = $path !== '' && substr($path, -strlen('/Citas/calendario.php')) === '/Citas/calendario.php';
+      $permiteCalendarioDemo2 = $path !== '' && substr($path, -strlen('/Citas/calendario_demo2.php')) === '/Citas/calendario_demo2.php';
+      $permiteSalir = $path !== '' && substr($path, -strlen('/salir.php')) === '/salir.php';
 
-     if (!$permiteCalendario && !$permiteSalir) {
-         header('Location: /Citas/calendario.php');
-         exit();
-     }
- }
+      if (!$permiteCalendario && !$permiteCalendarioDemo2 && !$permiteSalir) {
+          header('Location: /Citas/calendario.php');
+          exit();
+      }
+   }
 
 // Badge: citas de diagnostico para hoy.
 $diagnosticoCitasHoy = 0;
@@ -66,7 +67,7 @@ try {
 
 // Badge: citas por reasignar (usuario Nueva entrevista).
 $nuevaEntrevistaCitasPendientes = 0;
-if ($rol == 3 || $rol == 5) {
+if ($rol == 1 || $rol == 3 || $rol == 5) {
     try {
         $usuarioNuevaEntrevistaId = 11;
         if ($stmtPend = $conn->prepare('SELECT COUNT(*) FROM Cita WHERE IdUsuario = ? AND DATE(Programado) >= CURDATE() AND Estatus IN (2, 3)')) {
@@ -157,7 +158,10 @@ if ($rol == 3 || $rol == 5) {
                 class="navbar-brand"
                 height="20"
               />
-			  			
+              <?php 
+              			  			      echo 'Rol: ' . $rol;
+              ?>
+
             </a>
             <div class="nav-toggle">
               <button class="btn btn-toggle toggle-sidebar">
@@ -199,9 +203,13 @@ if ($rol == 3 || $rol == 5) {
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Corte de caja <span class="sr-only"></span></a>
       </li>
       <?php } ?>
-      <li class="nav-item ">
-        <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
-      </li>
+       <li class="nav-item ">
+         <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
+       </li>
+
+       <li class="nav-item ">
+         <a class="nav-link" href="/Citas/calendario_demo2.php"><i class="far fa-calendar"></i>Calendario Demo 2 <span class="sr-only"></span></a>
+       </li>
 
       <?php if (!$esPracticante) { ?>
         <li class="nav-item ">
@@ -214,25 +222,28 @@ if ($rol == 3 || $rol == 5) {
         <a class="nav-link" href="/Diagnostico/index.php"><i class="fas fa-stethoscope"></i>Diagnostico<?php if ($diagnosticoCitasHoy > 0) { echo ' <span class="badge bg-danger nav-badge ms-2">' . (int) $diagnosticoCitasHoy . '</span>'; } ?> <span class="sr-only"></span></a>
       </li>
       <?php } ?>
-      <?php if ($rol == 3 || $rol == 5) {?>
-                    <li class="nav-item ">
-         <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
-       </li>
-       <li class="nav-item ">
-         <a class="nav-link" href="/Citas/solicitudes.php?tipo=cancelacion"><i class="fas fa-ban"></i>Solicitudes de cancelación <span class="sr-only"></span></a>
-       </li>
-       <li class="nav-item ">
-         <a class="nav-link" href="/Citas/asignacion_nueva_entrevista.php"><i class="fas fa-user-check"></i>Asignación nueva entrevista<?php if ($nuevaEntrevistaCitasPendientes > 0) { echo ' <span class="badge bg-danger nav-badge ms-2">' . (int) $nuevaEntrevistaCitasPendientes . '</span>'; } ?> <span class="sr-only"></span></a>
-       </li>
-       <?php }
+       <?php if ($rol == 3 || $rol == 5) {?>
+                     <li class="nav-item ">
+          <a class="nav-link" href="/Citas/solicitudes.php"><i class="fas fa-history"></i>Solicitudes de reprogramación <span class="sr-only"></span></a>
+        </li>
+        <li class="nav-item ">
+          <a class="nav-link" href="/Citas/solicitudes.php?tipo=cancelacion"><i class="fas fa-ban"></i>Solicitudes de cancelación <span class="sr-only"></span></a>
+        </li>
+        <?php } ?>
 
-      if ($rol == 3 || $rol == 5) {?>
+        <?php if ($rol == 1 || $rol == 3 || $rol == 5) { ?>
+        <li class="nav-item ">
+          <a class="nav-link" href="/Citas/asignacion_nueva_entrevista.php"><i class="fas fa-user-check"></i>Asignación nueva entrevista<?php if ($nuevaEntrevistaCitasPendientes > 0) { echo ' <span class="badge bg-danger nav-badge ms-2">' . (int) $nuevaEntrevistaCitasPendientes . '</span>'; } ?> <span class="sr-only"></span></a>
+        </li>
+        <?php } ?>
+
+       <?php if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Clientes/solicitudes_saldo.php"><i class="fas fa-wallet"></i>Solicitudes de ajuste de saldo <span class="sr-only"></span></a>
       </li>
-      <?php }
+      <?php } ?>
 
-      if ($rol == 3 || $rol == 5) {?>
+       <?php if ($rol == 3 || $rol == 5) {?>
                    <li class="nav-item ">
         <a class="nav-link" href="/Reportes/index.php"><i class="fas fa-chart-pie"></i>Reportes <span class="sr-only"></span></a>
       </li>
