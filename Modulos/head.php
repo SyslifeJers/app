@@ -199,9 +199,15 @@ if ($rol == 3 || $rol == 5) {
         <a class="nav-link" href="/Citas/index.php"><i class="fas fa-clipboard"></i>Corte de caja <span class="sr-only"></span></a>
       </li>
       <?php } ?>
-            <li class="nav-item ">
+      <li class="nav-item ">
         <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
       </li>
+
+      <?php if (!$esPracticante) { ?>
+        <li class="nav-item ">
+          <a class="nav-link" href="/Tickets/index.php"><i class="fas fa-ticket-alt"></i><?php echo ($rol === 3) ? 'Tickets' : 'Soporte'; ?> <span class="sr-only"></span></a>
+        </li>
+      <?php } ?>
 
       <?php if (!$esPracticante) { ?>
              <li class="nav-item ">
