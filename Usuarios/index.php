@@ -4,12 +4,21 @@ ini_set('display_errors', 1);
 include '../Modulos/head.php';
 
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
-if ($rolUsuario === 2) {
+
+$ROL_VENTAS = 1;
+$ROL_RECEPCION = 2;
+$ROL_ADMIN = 3;
+$ROL_COORDINADOR = 5;
+
+$puedeAdministrarUsuarios = in_array($rolUsuario, [$ROL_ADMIN, $ROL_COORDINADOR], true);
+$puedeCrearPracticantes = ($rolUsuario === $ROL_VENTAS);
+
+if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
     http_response_code(403);
     ?>
     <div class="container mt-5">
         <div class="alert alert-warning" role="alert">
-            No tienes permiso para acceder al catálogo de psicólogos.
+            No tienes permiso para administrar usuarios.
         </div>
     </div>
     <?php
@@ -27,9 +36,13 @@ if ($rolUsuario === 2) {
                         <span class="badge bg-primary-subtle text-primary-emphasis rounded-circle p-2">
                             <i class="fas fa-user-shield"></i>
                         </span>
-                        Lista de Usuarios del Sistema
+                        <?php echo $puedeCrearPracticantes ? 'Registro de Practicantes' : 'Lista de Usuarios del Sistema'; ?>
                     </h2>
-                    <p class="text-muted mb-0 small">Consulta, registra y administra a los usuarios con acceso a la plataforma.</p>
+                    <p class="text-muted mb-0 small">
+                        <?php echo $puedeCrearPracticantes
+                            ? 'Crea usuarios con rol Practicante (solo lectura de agenda).'
+                            : 'Consulta, registra y administra a los usuarios con acceso a la plataforma.'; ?>
+                    </p>
                 </div>
                 <div class="d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-2 w-100 w-lg-auto">
                     <div class="input-group flex-fill">
@@ -44,6 +57,7 @@ if ($rolUsuario === 2) {
                 </div>
             </div>
         </div>
+        <?php if ($puedeAdministrarUsuarios) { ?>
         <div class="table-responsive">
             <table class="table table-hover align-middle mb-0" id="myTable">
                 <thead class="table-light">
@@ -150,6 +164,13 @@ if ($rolUsuario === 2) {
                 </tbody>
             </table>
         </div>
+        <?php } ?>
+
+        <?php
+        if (!$puedeAdministrarUsuarios && isset($conn) && $conn instanceof mysqli) {
+            $conn->close();
+        }
+        ?>
         <div class="card-footer bg-white border-0 text-muted small d-flex justify-content-between flex-column flex-sm-row gap-2">
             <div><i class="fas fa-info-circle me-1"></i> Usa la búsqueda para localizar rápidamente un usuario específico.</div>
             <div id="resultCount"></div>
@@ -157,6 +178,7 @@ if ($rolUsuario === 2) {
     </div>
 </div>
 
+<?php if ($puedeAdministrarUsuarios) { ?>
 <!-- Modal para editar usuario -->
 <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
     <div class="modal-dialog">
@@ -208,6 +230,7 @@ if ($rolUsuario === 2) {
         </div>
     </div>
 </div>
+<?php } ?>
 
 
 <!-- Modal -->
@@ -247,10 +270,13 @@ if ($rolUsuario === 2) {
                         <input type="email" class="form-control" id="correo" name="correo">
                     </div>
                     <div class="mb-3">
-                        <label for="IdRol" class="form-label">ID Rol</label>
+                        <label for="IdRol" class="form-label">Rol</label>
                         <select class="form-select" id="IdRol" name="IdRol" required>
                             <!-- Las opciones se llenarán dinámicamente desde la base de datos -->
                         </select>
+                        <div class="alert alert-info d-none mt-2 mb-0" id="rolHelp">
+                            El rol Practicante solo puede ver el calendario/agenda (sin modificar).
+                        </div>
                     </div>
                     <div class="mb-3">
                         <label for="color_id" class="form-label">Color</label>
@@ -277,6 +303,9 @@ include '../Modulos/footer.php';
 
 <script>
     $(document).ready(function () {
+        var rolSesion = <?php echo isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0; ?>;
+        var esVentas = (rolSesion === 1);
+
         $.ajax({
             url: '../getRoles.php',
             type: 'GET',
@@ -298,14 +327,27 @@ include '../Modulos/footer.php';
                         text: value.name
                     }));
                 });
-                var rol = <?php echo isset($_SESSION['rol']) ? $_SESSION['rol'] : 0; ?>;
+                var rol = rolSesion;
 
-                if (rol !== 3) {
+                if (esVentas) {
+                    $('#IdRol option').not('[value="6"]').remove();
+                    $('#editRol option').not('[value="6"]').remove();
+                    $('#IdRol').val('6');
+                } else if (rol !== 3) {
                     $('#IdRol option[value="3"]').remove();
                     $('#IdRol option[value="4"]').remove();
                     $('#editRol option[value="3"]').remove();
                     $('#editRol option[value="4"]').remove();
                 }
+
+                function updateRolHelp() {
+                    var selectedText = $('#IdRol option:selected').text() || '';
+                    var isPracticante = selectedText.trim().toLowerCase() === 'practicante';
+                    $('#rolHelp').toggleClass('d-none', !isPracticante);
+                }
+
+                $('#IdRol').on('change', updateRolHelp);
+                updateRolHelp();
             },
             error: function () {
                 alert('Error al obtener los roles');
@@ -343,7 +385,10 @@ include '../Modulos/footer.php';
                 alert('Error al obtener los colores disponibles');
             }
         });
-        var dataTable = $('#myTable').DataTable({
+        var $table = $('#myTable');
+        var dataTable = null;
+        if ($table.length) {
+            dataTable = $table.DataTable({
             language: {
                 lengthMenu: 'Número de filas _MENU_',
                 zeroRecords: 'No encontró nada, usa los filtros para pulir la búsqueda',
@@ -360,9 +405,13 @@ include '../Modulos/footer.php';
             },
             dom: 'tip',
             responsive: true
-        });
+            });
+        }
 
         function updateResultCount() {
+            if (!dataTable) {
+                return;
+            }
             var info = dataTable.page.info();
             var mensaje = 'Mostrando ' + info.recordsDisplay + ' usuario';
             mensaje += info.recordsDisplay === 1 ? '' : 's';
@@ -373,11 +422,16 @@ include '../Modulos/footer.php';
         }
 
         $('#searchInput').on('keyup change', function () {
+            if (!dataTable) {
+                return;
+            }
             dataTable.search(this.value).draw();
         });
 
-        dataTable.on('draw', updateResultCount);
-        updateResultCount();
+        if (dataTable) {
+            dataTable.on('draw', updateResultCount);
+            updateResultCount();
+        }
     });
     function editUser(id) {
         fetch(`getUser.php?id=${id}`)
@@ -432,20 +486,23 @@ include '../Modulos/footer.php';
 
         return true;
     }
-    document.getElementById('editForm').addEventListener('submit', function (event) {
-        event.preventDefault();
-        const formData = new FormData(this);
-        fetch('updateUser.php', {
-            method: 'POST',
-            body: formData
-        }).then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    alert('Usuario actualizado correctamente.');
-                    location.reload();
-                } else {
-                    alert('Error al actualizar el usuario.');
-                }
-            });
-    });
+    var editForm = document.getElementById('editForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function (event) {
+            event.preventDefault();
+            const formData = new FormData(this);
+            fetch('updateUser.php', {
+                method: 'POST',
+                body: formData
+            }).then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('Usuario actualizado correctamente.');
+                        location.reload();
+                    } else {
+                        alert('Error al actualizar el usuario.');
+                    }
+                });
+        });
+    }
 </script>

@@ -1,5 +1,8 @@
 <?php
 include '../Modulos/head.php';
+
+$ROL_PRACTICANTE = 6;
+$agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 ?>
 
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css">
@@ -307,11 +310,13 @@ include '../Modulos/head.php';
 <div class="page-inner">
     <div class="page-header d-flex justify-content-between align-items-start">
         <h3 class="fw-bold mb-3">Calendario de citas</h3>
+                    <?php if (!$agendaSoloLectura) { ?>
                     <div class="mb-3">
                         <button type="button" class="btn btn-outline-primary " id="open-meeting-modal">
                             Agregar reunión
                         </button>
                     </div>
+                    <?php } ?>
         
     </div>
   <div class="row">
@@ -389,6 +394,9 @@ include '../Modulos/head.php';
                         <dt class="col-sm-3">Finaliza</dt>
                         <dd class="col-sm-9" id="detail-fin"></dd>
 
+                        <dt class="col-sm-3">Tiempo</dt>
+                        <dd class="col-sm-9" id="detail-tiempo"></dd>
+
                         <dt class="col-sm-3">Estatus</dt>
                         <dd class="col-sm-9" id="detail-estatus"></dd>
 
@@ -408,6 +416,7 @@ include '../Modulos/head.php';
                         <dd class="col-sm-9" id="detail-cancel-requests"></dd>
                     </dl>
 
+                    <?php if (!$agendaSoloLectura) { ?>
                     <div class="mt-4 d-none" id="detail-actions-section">
                         <h6 class="fw-semibold mb-2">Acciones</h6>
                         <div class="d-flex flex-wrap gap-2">
@@ -416,6 +425,7 @@ include '../Modulos/head.php';
                         </div>
                         <p class="text-muted small mb-0 mt-2 d-none" id="detail-actions-helper"></p>
                     </div>
+                    <?php } ?>
                 </div>
             </div>
         </div>
@@ -466,6 +476,7 @@ include '../Modulos/head.php';
     </div>
 </div>
 
+<?php if (!$agendaSoloLectura) { ?>
 <div class="modal fade" id="updateModal" tabindex="-1" aria-labelledby="updateModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -493,10 +504,13 @@ include '../Modulos/head.php';
         </div>
     </div>
 </div>
+<?php } ?>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/locales-all.global.min.js"></script>
 <script>
+    const USER_CAN_EDIT = <?php echo $agendaSoloLectura ? 'false' : 'true'; ?>;
+
     
     document.addEventListener('DOMContentLoaded', function () {
         const calendarElement = document.getElementById('calendar');
@@ -1376,29 +1390,37 @@ include '../Modulos/head.php';
                         }
 
                         const startDate = new Date(item.programado);
-
                         if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
                             return;
                         }
 
-                        const dateParts = availabilityDatePartsFormatter.formatToParts(startDate);
+                        const endDate = item.termina ? new Date(item.termina) : null;
+                        const endTime = (endDate instanceof Date && !Number.isNaN(endDate.getTime()))
+                            ? endDate.getTime()
+                            : (startDate.getTime() + 60 * 60 * 1000);
 
-                        const yearPart = dateParts.find(function (part) { return part.type === 'year'; });
-                        const monthPart = dateParts.find(function (part) { return part.type === 'month'; });
-                        const dayPart = dateParts.find(function (part) { return part.type === 'day'; });
-                        const hourPart = dateParts.find(function (part) { return part.type === 'hour'; });
+                        const startTime = startDate.getTime();
+                        for (let ts = startTime; ts < endTime; ts += 60 * 60 * 1000) {
+                            const slotDate = new Date(ts);
+                            const dateParts = availabilityDatePartsFormatter.formatToParts(slotDate);
 
-                        if (!yearPart || !monthPart || !dayPart || !hourPart) {
-                            return;
-                        }
+                            const yearPart = dateParts.find(function (part) { return part.type === 'year'; });
+                            const monthPart = dateParts.find(function (part) { return part.type === 'month'; });
+                            const dayPart = dateParts.find(function (part) { return part.type === 'day'; });
+                            const hourPart = dateParts.find(function (part) { return part.type === 'hour'; });
 
-                        const eventYear = Number.parseInt(yearPart.value, 10);
-                        const eventMonth = Number.parseInt(monthPart.value, 10);
-                        const eventDay = Number.parseInt(dayPart.value, 10);
-                        const eventHour = Number.parseInt(hourPart.value, 10);
+                            if (!yearPart || !monthPart || !dayPart || !hourPart) {
+                                continue;
+                            }
 
-                        if (eventYear === year && eventMonth === month && eventDay === day) {
-                            occupiedHours.add(eventHour);
+                            const eventYear = Number.parseInt(yearPart.value, 10);
+                            const eventMonth = Number.parseInt(monthPart.value, 10);
+                            const eventDay = Number.parseInt(dayPart.value, 10);
+                            const eventHour = Number.parseInt(hourPart.value, 10);
+
+                            if (eventYear === year && eventMonth === month && eventDay === day) {
+                                occupiedHours.add(eventHour);
+                            }
                         }
                     });
 
@@ -1493,6 +1515,7 @@ include '../Modulos/head.php';
             psicologo: document.getElementById('detail-psicologo'),
             inicio: document.getElementById('detail-inicio'),
             fin: document.getElementById('detail-fin'),
+            tiempo: document.getElementById('detail-tiempo'),
             estatus: document.getElementById('detail-estatus'),
             tipo: document.getElementById('detail-tipo'),
             forma: document.getElementById('detail-forma'),
@@ -1714,6 +1737,17 @@ include '../Modulos/head.php';
                 detailFields.fin.textContent = event.end ? dateFormatter.format(event.end) : 'Sin registro';
             }
 
+            if (detailFields.tiempo) {
+                let minutos = Number.parseInt(props.tiempo, 10);
+                if (Number.isNaN(minutos) || minutos <= 0) {
+                    if (event.start instanceof Date && event.end instanceof Date) {
+                        const diffMs = event.end.getTime() - event.start.getTime();
+                        minutos = Math.round(diffMs / 60000);
+                    }
+                }
+                detailFields.tiempo.textContent = Number.isFinite(minutos) && minutos > 0 ? (minutos + ' min') : 'Sin registro';
+            }
+
             const helperMessages = [];
             const estatusValue = typeof props.estatus === 'string' ? props.estatus.trim().toLowerCase() : '';
             const isCancelled = estatusValue === 'cancelada';
@@ -1725,7 +1759,7 @@ include '../Modulos/head.php';
             if (detailReprogramButton) {
                 detailReprogramButton.dataset.citaId = props.entityId || '';
                 detailReprogramButton.textContent = 'Reprogramar';
-                const editable = !isMeeting && Boolean(props.isEditable) && !isCancelled;
+                const editable = USER_CAN_EDIT && !isMeeting && Boolean(props.isEditable) && !isCancelled;
                 detailReprogramButton.disabled = !editable || !props.entityId;
                 if (!editable) {
                     helperMessages.push(isMeeting
@@ -1737,7 +1771,7 @@ include '../Modulos/head.php';
             if (detailCancelButton) {
                 detailCancelButton.dataset.citaId = props.entityId || '';
                 detailCancelButton.textContent = isMeeting ? 'No disponible' : 'Cancelar';
-                detailCancelButton.disabled = isMeeting || !props.entityId || isCancelled;
+                detailCancelButton.disabled = !USER_CAN_EDIT || isMeeting || !props.entityId || isCancelled;
             }
 
             if (isCancelled) {
@@ -1773,7 +1807,7 @@ include '../Modulos/head.php';
             },
             navLinks: true,
             nowIndicator: true,
-            editable: true,
+            editable: USER_CAN_EDIT,
             eventDurationEditable: false,
             eventTimeFormat: {
                 hour: '2-digit',
@@ -1845,7 +1879,7 @@ include '../Modulos/head.php';
                             const rawStartTimestamp = hasValidStart ? startDate.getTime() : NaN;
                             const rawEndTimestamp = hasValidEnd ? endDate.getTime() : NaN;
                             const isPaid = isFormaPagoRegistrada(item.forma_pago);
-                            const isEditable = eventKind === 'cita' && Boolean(
+                            const isEditable = USER_CAN_EDIT && eventKind === 'cita' && Boolean(
                                 hasValidStart &&
                                 hasValidEnd &&
                                 isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)
@@ -1880,6 +1914,7 @@ include '../Modulos/head.php';
                                     tipo: item.tipo,
                                     forma_pago: item.forma_pago,
                                     costo: item.costo,
+                                    tiempo: item.tiempo,
                                     programado: item.programado,
                                     termina: item.termina,
                                     psicologoColor: palette,
@@ -1938,7 +1973,12 @@ include '../Modulos/head.php';
 
                 const time = document.createElement('span');
                 time.classList.add('calendar-event-time');
-                time.textContent = formatTimeRange(arg.event.start, arg.event.end);
+                let timeText = formatTimeRange(arg.event.start, arg.event.end);
+                const durationMinutes = Number.parseInt(arg.event.extendedProps && arg.event.extendedProps.tiempo, 10);
+                if (Number.isFinite(durationMinutes) && durationMinutes > 0 && !isMeeting) {
+                    timeText += ' (' + durationMinutes + 'm)';
+                }
+                time.textContent = timeText;
                 content.appendChild(time);
 
                 const paciente = document.createElement('span');
@@ -2217,6 +2257,7 @@ include '../Modulos/head.php';
     });
 </script>
 
+<?php if (!$agendaSoloLectura) { ?>
 <div class="modal fade" id="meetingModal" tabindex="-1" aria-labelledby="meetingModalLabel" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -2256,6 +2297,7 @@ include '../Modulos/head.php';
         </div>
     </div>
 </div>
+<?php } ?>
 
 <?php
 include '../Modulos/footer.php';

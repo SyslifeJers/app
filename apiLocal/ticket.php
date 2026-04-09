@@ -78,7 +78,7 @@ echo $json_ticket;
         echo "No se encontró la cita con el ID especificado.";
     }
 
-    // Cerrar la conexión a la base de datos
+    // Cerrar la conexión a la base de datos 
     $conn->close();
 } catch (Exception $e) {
     echo "No se pudo imprimir el ticket: " . $e->getMessage();

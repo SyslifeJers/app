@@ -6,6 +6,16 @@ session_start();
 
 header('Content-Type: application/json');
 
+$ROL_PRACTICANTE = 6;
+if (isset($_SESSION['rol']) && (int) $_SESSION['rol'] === $ROL_PRACTICANTE) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'message' => 'No tienes permisos para finalizar citas.'
+    ]);
+    exit;
+}
+
 date_default_timezone_set('America/Mexico_City');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

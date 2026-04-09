@@ -2,13 +2,31 @@
 ini_set('display_errors', 1);
 session_start();
 
+$ROL_PRACTICANTE = 6;
+if (isset($_SESSION['rol']) && (int) $_SESSION['rol'] === $ROL_PRACTICANTE) {
+    http_response_code(403);
+    die('No tienes permisos para crear usuarios.');
+}
+
+if (!isset($_SESSION['id']) || !isset($_SESSION['token'])) {
+    http_response_code(401);
+    die('No autenticado.');
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $name = $_POST['name'];
     $user = $_POST['user'];
     $pass = $_POST['pass'];
     $telefono = $_POST['telefono'];
     $correo = $_POST['correo'];
-    $IdRol = $_POST['IdRol'];
+    $IdRol = (int) ($_POST['IdRol'] ?? 0);
+
+    $rolSesion = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
+    $esVentas = ($rolSesion === 1);
+    if ($esVentas && $IdRol !== $ROL_PRACTICANTE) {
+        http_response_code(403);
+        die('Solo puedes registrar usuarios con rol Practicante.');
+    }
 
     // Validar la contraseña (mínimo 6 caracteres)
     if (strlen($pass) < 6) {
@@ -21,8 +39,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     // Preparar y vincular
     $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, ?)");
-    $token = '';
-    $stmt->bind_param("ssssssi", $name, $user, $pass, $token, $telefono, $correo, $IdRol);
+    $stmt->bind_param("sssssi", $name, $user, $pass, $telefono, $correo, $IdRol);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {

@@ -6,7 +6,7 @@ $sql = "SELECT usu.`id`, Rol.name AS rol, usu.`name`, `telefono`, `correo`, co.c
 FROM `Usuarios` usu
 INNER JOIN Rol ON Rol.id = usu.IdRol
 LEFT JOIN colores co ON co.id = usu.color_id
-WHERE usu.activo = 1 AND (usu.IdRol = 2);";
+WHERE usu.activo = 1 AND LOWER(Rol.name) LIKE '%psicolog%';";
 $result = $conn->query($sql);
 $users = $result->fetch_all(MYSQLI_ASSOC);
 echo json_encode($users);

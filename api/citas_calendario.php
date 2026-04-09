@@ -1,6 +1,8 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 
+session_start();
+
 require_once __DIR__ . '/../conexion.php';
 
 function jsonResponse(int $statusCode, array $payload): void
@@ -8,6 +10,10 @@ function jsonResponse(int $statusCode, array $payload): void
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+if (!isset($_SESSION['id']) || !isset($_SESSION['token'])) {
+    jsonResponse(401, ['error' => 'No autenticado.']);
 }
 
 function normalizarParametro($valor, DateTimeZone $tz, $campo)
@@ -106,15 +112,16 @@ if ($pacienteFiltro !== null) {
 }
 
 $sqlCitas = 'SELECT ci.id,
-               ci.Programado,
-               ci.Tipo,
-               ci.FormaPago,
-               ci.costo,
-               ci.IdUsuario AS psicologo_id,
-               n.name AS paciente,
-               us.name AS psicologo,
-               co.codigo_hex AS psicologo_color,
-               es.name AS estatus'
+                ci.Programado,
+                ci.Tiempo,
+                ci.Tipo,
+                ci.FormaPago,
+                ci.costo,
+                ci.IdUsuario AS psicologo_id,
+                n.name AS paciente,
+                us.name AS psicologo,
+                co.codigo_hex AS psicologo_color,
+                es.name AS estatus'
     . $selectSolicitudesReprogramacion
     . $selectSolicitudesCancelacion
     . ' FROM Cita ci
@@ -149,8 +156,13 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
         continue;
     }
 
+    $duracion = isset($fila['Tiempo']) ? (int) $fila['Tiempo'] : 60;
+    if ($duracion <= 0) {
+        $duracion = 60;
+    }
+
     $fin = clone $inicio;
-    $fin->modify('+1 hour');
+    $fin->modify('+' . $duracion . ' minutes');
 
     $eventos[] = [
         'id' => 'cita-' . (int) $fila['id'],
@@ -162,6 +174,7 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
         'psicologo_color' => $fila['psicologo_color'] ?? null,
         'programado' => $inicio->format(DateTime::ATOM),
         'termina' => $fin->format(DateTime::ATOM),
+        'tiempo' => $duracion,
         'estatus' => $fila['estatus'],
         'tipo' => $fila['Tipo'],
         'forma_pago' => $fila['FormaPago'],

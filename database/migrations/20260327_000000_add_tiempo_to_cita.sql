@@ -1,0 +1,2 @@
+ALTER TABLE `Cita`
+    ADD COLUMN `Tiempo` INT NOT NULL DEFAULT 60 AFTER `Programado`;

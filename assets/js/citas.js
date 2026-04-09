@@ -5,6 +5,7 @@ const pagoModalEstado = {
   estatus: null,
   costo: 0,
   saldo: 0,
+  tiempo: 60,
   pagos: [],
   pacienteId: null,
   pacienteNombre: '',
@@ -31,6 +32,7 @@ const proximaClienteInput = document.getElementById('proximaCliente');
 const proximaPsicologoInput = document.getElementById('proximaPsicologo');
 const proximaFechaInput = document.getElementById('proximaFecha');
 const proximaCostoInput = document.getElementById('proximaCosto');
+const proximaTiempoInput = document.getElementById('proximaTiempo');
 const proximaSendIdClienteInput = document.getElementById('proximaSendIdCliente');
 const proximaSendIdPsicologoInput = document.getElementById('proximaSendIdPsicologo');
 const proximaResumenTipoInput = document.getElementById('proximaResumenTipo');
@@ -437,6 +439,8 @@ function actualizarCitaPago(info) {
   pagoModalEstado.psicologoNombre = info.psicologoNombre || '';
   pagoModalEstado.tipo = info.tipo || '';
   pagoModalEstado.programado = info.programado || null;
+  const tiempoParsed = parseInt(info.tiempo, 10);
+  pagoModalEstado.tiempo = Number.isInteger(tiempoParsed) && tiempoParsed > 0 ? tiempoParsed : 60;
   pagoModalEstado.mensajePago = '';
   pagoModalEstado.imprimirTicket = true;
 
@@ -649,6 +653,10 @@ function mostrarModalProximaCita() {
       const costo = Number.isFinite(pagoModalEstado.costo) ? pagoModalEstado.costo : 0;
       proximaCostoInput.value = costo.toFixed(2);
     }
+    if (proximaTiempoInput) {
+      const tiempo = Number.isFinite(pagoModalEstado.tiempo) && pagoModalEstado.tiempo > 0 ? pagoModalEstado.tiempo : 60;
+      proximaTiempoInput.value = String(tiempo);
+    }
   } else if (proximaFechaInput) {
     proximaFechaInput.value = fechaSugerida;
   }
@@ -672,8 +680,9 @@ function agendarProximaCita() {
   const tipo = proximaResumenTipoInput ? proximaResumenTipoInput.value : '';
   const fechaValor = proximaFechaInput ? proximaFechaInput.value : '';
   const costoValor = proximaCostoInput ? proximaCostoInput.value : '';
+  const tiempoValor = proximaTiempoInput ? proximaTiempoInput.value : '';
 
-  if (!clienteId || !psicologoId || !tipo || !fechaValor || !costoValor) {
+  if (!clienteId || !psicologoId || !tipo || !fechaValor || !costoValor || !tiempoValor) {
     alert('Completa la información de la próxima cita antes de continuar.');
     return;
   }
@@ -696,12 +705,19 @@ function agendarProximaCita() {
     return;
   }
 
+  const tiempoNumerico = parseInt(tiempoValor, 10);
+  if (!Number.isInteger(tiempoNumerico) || tiempoNumerico <= 0) {
+    alert('Ingresa un tiempo válido (en minutos) para la próxima cita.');
+    return;
+  }
+
   const formData = new FormData(formProximaCita);
   formData.set('sendIdCliente', clienteId);
   formData.set('sendIdPsicologo', psicologoId);
   formData.set('resumenTipo', tipo);
   formData.set('resumenFecha', formatearDatetimeLocal(fechaSeleccionada));
   formData.set('resumenCosto', costoNumerico.toFixed(2));
+  formData.set('resumenTiempo', String(tiempoNumerico));
   formData.append('sendIdPaquete', '');
   formData.append('paqueteMetodo', '');
 
@@ -869,11 +885,18 @@ function validarFormulario(event) {
   const tipo = document.getElementById('resumenTipo').value;
   const costoTexto = document.getElementById('resumenCosto').value;
   const fecha = document.getElementById('resumenFecha').value;
+  const tiempoTexto = document.getElementById('resumenTiempo') ? document.getElementById('resumenTiempo').value : '';
   const costo = parseFloat(costoTexto);
 
   // Validar que los campos no estén vacíos
-  if (!cliente || !psicologo || !tipo || costoTexto === '' || !fecha) {
+  if (!cliente || !psicologo || !tipo || costoTexto === '' || !fecha || tiempoTexto === '') {
     alert('Todos los campos son obligatorios.');
+    return false;
+  }
+
+  const tiempoNumero = parseInt(tiempoTexto, 10);
+  if (!Number.isInteger(tiempoNumero) || tiempoNumero <= 0) {
+    alert('El tiempo de la cita debe ser un número entero mayor a 0.');
     return false;
   }
 
@@ -1098,7 +1121,7 @@ function searchNino() {
 }
 
 window.onload = loadAll;
-
+/*
 const citaDiaInput = document.getElementById('citaDia');
 if (citaDiaInput) {
   const fechaMinima = new Date();
@@ -1109,14 +1132,14 @@ if (citaDiaInput) {
   }
 
   citaDiaInput.min = formatearDatetimeLocal(fechaMinima);
-  citaDiaInput.step = 3600;
+  citaDiaInput.step = 1800;
   citaDiaInput.addEventListener('change', () => {
     normalizarHoraCerradaInput(citaDiaInput);
     updateResumen();
   });
   citaDiaInput.addEventListener('blur', () => normalizarHoraCerradaInput(citaDiaInput));
   normalizarHoraCerradaInput(citaDiaInput);
-}
+}*/
 
 const fechaProgramadaInput = document.getElementById('fechaProgramada');
 if (fechaProgramadaInput) {
@@ -1154,10 +1177,12 @@ $(document).ready(function () {
 function revisarCita() {
   var idUsuario = document.getElementById('sendIdPsicologo').value;
   var resumenFecha = document.getElementById('resumenFecha').value;
+  var resumenTiempo = document.getElementById('resumenTiempo') ? document.getElementById('resumenTiempo').value : '60';
   console.log(idUsuario, resumenFecha)
   var formData = new FormData();
   formData.append('IdUsuario', idUsuario);
   formData.append('resumenFecha', resumenFecha);
+  formData.append('resumenTiempo', resumenTiempo);
 
   fetch('Modulos/validarCita.php', {
     method: 'POST',

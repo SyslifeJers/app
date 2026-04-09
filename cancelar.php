@@ -15,10 +15,11 @@ $fechaActual = date('Y-m-d H:i:s'); // Formato de fecha y hora actual
 $idUsuario = $_SESSION['id'] ?? null;
 $rolUsuario = $_SESSION['rol'] ?? null;
 
-$ROL_VENTAS = 0;
+$ROL_VENTAS = 1;
 $ROL_RECEPCION = 2;
 $ROL_ADMIN = 3;
 $ROL_COORDINADOR = 5;
+$ROL_PRACTICANTE = 6;
 $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
 function finalizarRespuesta($success, $mensaje, $tipo = 'success', array $extra = [])
@@ -43,6 +44,9 @@ function finalizarRespuesta($success, $mensaje, $tipo = 'success', array $extra 
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if ($rolUsuario === $ROL_PRACTICANTE) {
+        finalizarRespuesta(false, 'No tienes permisos para cancelar o finalizar citas.', 'danger');
+    }
     $citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
     $estatus = isset($_POST['estatus']) ? (int) $_POST['estatus'] : 0;
     $formaPago = isset($_POST['formaPago']) ? trim((string) $_POST['formaPago']) : null;

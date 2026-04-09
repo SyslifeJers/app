@@ -19,6 +19,18 @@ $conn->set_charset('utf8mb4');
 
 $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+$usuarioId = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
+$rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
+$ROL_PRACTICANTE = 6;
+
+if ($usuarioId <= 0) {
+    respuesta(401, ['success' => false, 'message' => 'No autenticado.']);
+}
+
+if ($metodo === 'POST' && $rolUsuario === $ROL_PRACTICANTE) {
+    respuesta(403, ['success' => false, 'message' => 'No tienes permisos para crear reuniones.']);
+}
+
 if ($metodo === 'GET') {
     $sql = "SELECT
             ri.id,
@@ -100,7 +112,7 @@ if ($metodo === 'POST') {
 
     $inicioSql = $inicioDate->format('Y-m-d H:i:s');
     $finSql = $finDate->format('Y-m-d H:i:s');
-    $creadoPor = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
+    $creadoPor = $usuarioId;
 
     $conn->begin_transaction();
     try {

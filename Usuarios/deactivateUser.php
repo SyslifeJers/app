@@ -1,6 +1,20 @@
 <?php
 session_start();
 
+$ROL_PRACTICANTE = 6;
+if (isset($_SESSION['rol']) && (int) $_SESSION['rol'] === $ROL_PRACTICANTE) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
+$rolSesion = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
+if ($rolSesion === 1) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'No autorizado']);
+    exit;
+}
+
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/../Modulos/logger.php';
 $conn = conectar();

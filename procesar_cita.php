@@ -4,6 +4,13 @@ header('Content-Type: application/json');
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
+$ROL_PRACTICANTE = 6;
+if (isset($_SESSION['rol']) && (int) $_SESSION['rol'] === $ROL_PRACTICANTE) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'message' => 'No tienes permisos para crear o modificar citas.']);
+    exit;
+}
+
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $required = ['sendIdCliente', 'sendIdPsicologo', 'resumenTipo', 'resumenFecha', 'resumenCosto'];
     foreach ($required as $field) {
@@ -36,6 +43,14 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $costo = (float) $_POST['resumenCosto'];
     if ($costo < 0) {
         echo json_encode(['success' => false, 'message' => 'El costo no puede ser negativo.']);
+        $conn->close();
+        exit;
+    }
+
+    $tiempoRaw = $_POST['resumenTiempo'] ?? 60;
+    $tiempo = (int) $tiempoRaw;
+    if ($tiempo <= 0) {
+        echo json_encode(['success' => false, 'message' => 'El tiempo de la cita debe ser mayor a 0 minutos.']);
         $conn->close();
         exit;
     }
@@ -102,13 +117,13 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     $conn->begin_transaction();
 
     try {
-        $sql = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Estatus, Tipo, paquete_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)';
+        $sql = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
             throw new Exception('No fue posible preparar la creación de la cita.');
         }
 
-        $stmt->bind_param('iiisdsisi', $idCliente, $idPsicologo, $idGenerado, $fechaActual, $costo, $fechaCita, $estatus, $tipo, $paqueteId);
+        $stmt->bind_param('iiisdsiisi', $idCliente, $idPsicologo, $idGenerado, $fechaActual, $costo, $fechaCita, $tiempo, $estatus, $tipo, $paqueteId);
         if (!$stmt->execute()) {
             $stmt->close();
             throw new Exception('No fue posible guardar la cita.');

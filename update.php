@@ -26,10 +26,30 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     }
 
     // Constantes de rol
-    $ROL_VENTAS = 0;
+    $ROL_VENTAS = 1;
     $ROL_RECEPCION = 2;
     $ROL_ADMIN = 3;
     $ROL_COORDINADOR = 5;
+    $ROL_PRACTICANTE = 6;
+
+    if ($rolUsuario === $ROL_PRACTICANTE) {
+        $_SESSION['reprogramacion_mensaje'] = 'No tienes permisos para reprogramar citas.';
+        $_SESSION['reprogramacion_tipo'] = 'danger';
+
+        $redirectTo = isset($_POST['redirect_to']) ? trim((string) $_POST['redirect_to']) : '';
+        $redirectInvalido = $redirectTo === ''
+            || strpos($redirectTo, '://') !== false
+            || strpos($redirectTo, '//') === 0
+            || strpos($redirectTo, "\n") !== false
+            || strpos($redirectTo, "\r") !== false
+            || strpos($redirectTo, '..') !== false;
+        if ($redirectInvalido) {
+            $redirectTo = 'Citas/calendario.php';
+        }
+
+        header('Location: ' . $redirectTo);
+        exit;
+    }
 
     $tablaSolicitudesDisponible = false;
     $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");

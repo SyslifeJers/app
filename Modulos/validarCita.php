@@ -8,21 +8,31 @@ $conn = conectar();
 // Datos del formulario
 $idPsicologo = $_POST['IdUsuario'];
 $nuevaFecha = $_POST['resumenFecha'];
+$tiempoRaw = $_POST['resumenTiempo'] ?? 60;
+$tiempo = (int) $tiempoRaw;
+if ($tiempo <= 0) {
+    $tiempo = 60;
+}
 
 // Convertir la fecha a formato datetime
-$nuevaFechaDatetime = new DateTime($nuevaFecha);
+$inicioNuevo = new DateTime($nuevaFecha);
+$finNuevo = clone $inicioNuevo;
+$finNuevo->modify('+' . $tiempo . ' minutes');
 
-// Calcular el rango de fechas
-$fechaInicio = $nuevaFechaDatetime->modify('-1 hour')->format('Y-m-d H:i:s');
-$fechaFin = $nuevaFechaDatetime->modify('+1 hour')->format('Y-m-d H:i:s');
+$inicioSql = $inicioNuevo->format('Y-m-d H:i:s');
+$finSql = $finNuevo->format('Y-m-d H:i:s');
 
-// Consulta para verificar si hay citas en el rango
-$sql = "SELECT Cita.Programado, nino.name 
+// Consulta para verificar si hay citas que se empalmen.
+// Regla de empalme: existente.inicio < nuevo.fin && existente.fin > nuevo.inicio
+$sql = "SELECT Cita.Programado, nino.name
         FROM Cita
-        INNER JOIN nino ON Cita.IdNino = nino.id 
-        WHERE Cita.IdUsuario = ? AND Cita.Programado BETWEEN ? AND ?";
+        INNER JOIN nino ON Cita.IdNino = nino.id
+        WHERE Cita.IdUsuario = ?
+          AND Cita.Estatus <> 1
+          AND Cita.Programado < ?
+          AND DATE_ADD(Cita.Programado, INTERVAL COALESCE(Cita.Tiempo, 60) MINUTE) > ?";
 $stmt = $conn->prepare($sql);
-$stmt->bind_param("iss", $idPsicologo, $fechaInicio, $fechaFin);
+$stmt->bind_param('iss', $idPsicologo, $finSql, $inicioSql);
 $stmt->execute();
 $stmt->bind_result($fecha, $nombre);
 
@@ -34,7 +44,7 @@ while ($stmt->fetch()) {
 
 if (count($citasAfectadas) > 0) {
     // Hay superposición de citas
-    echo json_encode(array('success' => false, 'message' => 'Ya existe una cita en el rango de 1 hora', 'citas' => $citasAfectadas));
+    echo json_encode(array('success' => false, 'message' => 'Ya existe una cita que se empalma con este horario.', 'citas' => $citasAfectadas));
 } else {
     // No hay superposición
     echo json_encode(array('success' => true, 'message' => 'La cita es válida.'));

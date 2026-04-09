@@ -138,13 +138,14 @@ if ($accion === 'crear') {
         $costo = 0.0;
         $formaPago = 'Diagnostico';
         $sesionNumero = 1;
+        $tiempoCita = 60;
 
-        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
         $stmtCita = $conn->prepare($sqlCita);
         if (!$stmtCita) {
             throw new RuntimeException('No fue posible preparar la cita.');
         }
-        $stmtCita->bind_param('iiisdsisiss', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $estatusCita, $tipoCita, $diagnosticoId, $sesionNumero, $formaPago);
+        $stmtCita->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $sesionNumero, $formaPago);
         if (!$stmtCita->execute()) {
             $stmtCita->close();
             throw new RuntimeException('No fue posible guardar la cita.');
@@ -395,13 +396,14 @@ if ($accion === 'agendar') {
         $tipoCita = 'Diagnostico';
         $costo = 0.0;
         $formaPago = 'Diagnostico';
+        $tiempoCita = 60;
 
-        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
         $stmtCita = $conn->prepare($sqlCita);
         if (!$stmtCita) {
             throw new RuntimeException('No fue posible preparar la cita.');
         }
-        $stmtCita->bind_param('iiisdsisiss', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
+        $stmtCita->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
         if (!$stmtCita->execute()) {
             $stmtCita->close();
             throw new RuntimeException('No fue posible guardar la cita.');
@@ -574,13 +576,14 @@ if ($accion === 'finalizar') {
             $tipoCita = 'Diagnostico';
             $costo = 0.0;
             $formaPago = 'Diagnostico';
+            $tiempoCita = 60;
 
-            $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+            $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
             $stmtNueva = $conn->prepare($sqlCita);
             if (!$stmtNueva) {
                 throw new RuntimeException('No fue posible preparar la proxima cita.');
             }
-            $stmtNueva->bind_param('iiisdsisiss', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $proximaFechaSql, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
+            $stmtNueva->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $proximaFechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
             if (!$stmtNueva->execute()) {
                 $stmtNueva->close();
                 throw new RuntimeException('No fue posible guardar la proxima cita.');

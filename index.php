@@ -297,6 +297,7 @@ if ($estatusSeleccionado === null) {
        ci.IdUsuario AS PsicologoId,
        ci.costo,
        ci.Programado,
+       ci.Tiempo,
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
        ci.Tipo,
@@ -410,6 +411,7 @@ $result = $stmt->get_result();
                   'pacienteId' => (int) $row['paciente_id'],
                   'saldo' => (float) $row['saldo_paquete'],
                   'programado' => $row['Programado'],
+                  'tiempo' => isset($row['Tiempo']) ? (int) $row['Tiempo'] : 60,
                   'psicologoId' => (int) $row['PsicologoId'],
                   'tipo' => $row['Tipo'],
                   'pacienteNombre' => $row['name'],
@@ -577,6 +579,10 @@ $result = $stmt->get_result();
               <div class="form-group">
                 <label for="resumenFecha">Fecha de la Cita</label>
                 <input type="datetime-local" name="resumenFecha" id="resumenFecha" class="form-control" readonly step="3600">
+              </div>
+              <div class="form-group">
+                <label for="resumenTiempo">Tiempo (minutos)</label>
+                <input type="number" name="resumenTiempo" id="resumenTiempo" class="form-control" min="1" step="1" value="60">
               </div>
               <button type="submit" class="btn btn-primary mt-3">Guardar Cita</button>
               <hr>
@@ -771,6 +777,10 @@ $result = $stmt->get_result();
           <div class="mb-3">
             <label for="proximaCosto" class="form-label">Costo</label>
             <input type="number" class="form-control" id="proximaCosto" name="resumenCosto" min="0" step="0.01" required>
+          </div>
+          <div class="mb-3">
+            <label for="proximaTiempo" class="form-label">Tiempo (minutos)</label>
+            <input type="number" class="form-control" id="proximaTiempo" name="resumenTiempo" min="1" step="1" value="60" required>
           </div>
         </form>
       </div>
