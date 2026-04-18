@@ -3,6 +3,7 @@ session_start();
 header('Content-Type: application/json');
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
+date_default_timezone_set('America/Mexico_City');
 
 $ROL_PRACTICANTE = 6;
 if (isset($_SESSION['rol']) && (int) $_SESSION['rol'] === $ROL_PRACTICANTE) {
@@ -28,6 +29,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     require_once 'conexion.php';
     require_once __DIR__ . '/Modulos/logger.php';
+    require_once __DIR__ . '/Modulos/resumen_pagos.php';
     require_once __DIR__ . '/Modulos/saldo_pacientes.php';
 
     $conn = conectar();
@@ -35,6 +37,8 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $idCliente = isset($_POST['sendIdCliente']) ? (int) $_POST['sendIdCliente'] : 0;
     $idPsicologo = isset($_POST['sendIdPsicologo']) ? (int) $_POST['sendIdPsicologo'] : 0;
+    $pacienteNombre = isset($_POST['sendClienteNombre']) ? trim((string) $_POST['sendClienteNombre']) : '';
+    $psicologoNombre = isset($_POST['sendPsicologoNombre']) ? trim((string) $_POST['sendPsicologoNombre']) : '';
     $tipo = trim($_POST['resumenTipo']);
     $fechaCita = $_POST['resumenFecha'];
     $idGenerado = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
@@ -148,6 +152,22 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                 throw new Exception('Ocurrió un error al guardar el pago inicial del paquete.');
             }
             $stmtPago->close();
+
+            registrarResumenPago($conn, [
+                'origen' => 'cita',
+                'referencia_id' => $nuevaCitaId,
+                'cita_id' => $nuevaCitaId,
+                'paciente_id' => $idCliente,
+                'paciente_nombre' => $pacienteNombre,
+                'psicologo_id' => $idPsicologo,
+                'psicologo_nombre' => $psicologoNombre,
+                'monto' => $montoInicial,
+                'metodo_pago' => $paqueteMetodo,
+                'fecha_pago' => $fechaActual,
+                'fecha_corte' => substr($fechaActual, 0, 10),
+                'registrado_por' => $idGenerado,
+                'observaciones' => sprintf('Pago inicial de paquete %s.', $paqueteInfo['nombre']),
+            ]);
 
             $formaPagoPaquete = sprintf('Paquete (%s)', $paqueteMetodo);
             $stmtActualizar = $conn->prepare('UPDATE Cita SET FormaPago = ? WHERE id = ?');

@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 session_start();
 header('Content-Type: application/json; charset=utf-8');
+date_default_timezone_set('America/Mexico_City');
 
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/../Modulos/logger.php';
+require_once __DIR__ . '/../Modulos/resumen_pagos.php';
 
 function responder(int $status, array $payload): void
 {
@@ -122,6 +124,20 @@ if ($accion === 'crear') {
                 throw new RuntimeException('No fue posible guardar el pago inicial.');
             }
             $stmtPago->close();
+
+            registrarResumenPago($conn, [
+                'origen' => 'diagnostico',
+                'referencia_id' => $diagnosticoId,
+                'diagnostico_id' => $diagnosticoId,
+                'paciente_id' => $ninoId,
+                'psicologo_id' => $psicologoId,
+                'monto' => $pagoInicial,
+                'metodo_pago' => $metodo,
+                'fecha_pago' => $fechaActual,
+                'fecha_corte' => substr($fechaActual, 0, 10),
+                'registrado_por' => $usuarioId,
+                'observaciones' => 'Pago inicial de diagnostico.',
+            ]);
         }
 
         // Evitar duplicados de cita a la misma hora para el paciente.
@@ -263,13 +279,13 @@ if ($accion === 'pagar') {
 
     $conn->begin_transaction();
     try {
-        $stmt = $conn->prepare('SELECT saldo_restante, sesiones_total, sesiones_completadas FROM Diagnosticos WHERE id = ? FOR UPDATE');
+        $stmt = $conn->prepare('SELECT nino_id, psicologo_id, saldo_restante, sesiones_total, sesiones_completadas FROM Diagnosticos WHERE id = ? FOR UPDATE');
         if (!$stmt) {
             throw new RuntimeException('No fue posible preparar la consulta del diagnostico.');
         }
         $stmt->bind_param('i', $diagnosticoId);
         $stmt->execute();
-        $stmt->bind_result($saldoRestante, $sesionesTotal, $sesionesCompletadas);
+        $stmt->bind_result($ninoId, $psicologoId, $saldoRestante, $sesionesTotal, $sesionesCompletadas);
         if (!$stmt->fetch()) {
             $stmt->close();
             throw new RuntimeException('Diagnostico no encontrado.');
@@ -294,6 +310,20 @@ if ($accion === 'pagar') {
             throw new RuntimeException('No fue posible guardar el pago.');
         }
         $stmtPago->close();
+
+        registrarResumenPago($conn, [
+            'origen' => 'diagnostico',
+            'referencia_id' => $diagnosticoId,
+            'diagnostico_id' => $diagnosticoId,
+            'paciente_id' => isset($ninoId) ? (int) $ninoId : null,
+            'psicologo_id' => isset($psicologoId) ? (int) $psicologoId : null,
+            'monto' => $montoAplicado,
+            'metodo_pago' => $metodo,
+            'fecha_pago' => $fechaActual,
+            'fecha_corte' => substr($fechaActual, 0, 10),
+            'registrado_por' => $usuarioId,
+            'observaciones' => 'Pago registrado en diagnostico.',
+        ]);
 
         $sesionesTotal = (int) $sesionesTotal;
         $sesionesCompletadas = (int) $sesionesCompletadas;
@@ -540,6 +570,21 @@ if ($accion === 'finalizar') {
                 throw new RuntimeException('No fue posible registrar el pago.');
             }
             $stmtPago->close();
+
+            registrarResumenPago($conn, [
+                'origen' => 'diagnostico',
+                'referencia_id' => $diagnosticoId,
+                'diagnostico_id' => $diagnosticoId,
+                'cita_id' => $citaId,
+                'paciente_id' => $ninoId,
+                'psicologo_id' => $psicologoId,
+                'monto' => $montoAplicado,
+                'metodo_pago' => $pagoMetodo,
+                'fecha_pago' => $fechaActual,
+                'fecha_corte' => substr($fechaActual, 0, 10),
+                'registrado_por' => $usuarioId,
+                'observaciones' => sprintf('Pago registrado al finalizar sesion %d de diagnostico.', $sesionNumero),
+            ]);
             $saldoRestante = max(0.0, $saldoRestante - $montoAplicado);
         }
 

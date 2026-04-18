@@ -5,10 +5,65 @@ require_once __DIR__ . '/../Modulos/logger.php';
 
 $USUARIO_NUEVA_ENTREVISTA_ID = 11;
 
+$rolesDesdeJson = [];
+function cargarRolesDesdeJson(string $ruta): array
+{
+    if (!is_file($ruta) || !is_readable($ruta)) {
+        return [];
+    }
+
+    $raw = file_get_contents($ruta);
+    if ($raw === false || trim($raw) === '') {
+        return [];
+    }
+
+    $json = json_decode($raw, true);
+    if (!is_array($json)) {
+        return [];
+    }
+
+    $roles = [];
+    foreach ($json as $entry) {
+        if (!is_array($entry)) {
+            continue;
+        }
+        if (($entry['type'] ?? '') !== 'table' || ($entry['name'] ?? '') !== 'Rol') {
+            continue;
+        }
+
+        $data = $entry['data'] ?? [];
+        if (!is_array($data)) {
+            continue;
+        }
+
+        foreach ($data as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $id = isset($row['id']) ? (int) $row['id'] : 0;
+            $name = isset($row['name']) ? trim((string) $row['name']) : '';
+            $activo = isset($row['activo']) ? (int) $row['activo'] : 0;
+            if ($id > 0 && $name !== '' && $activo === 1) {
+                $roles[$name] = $id;
+            }
+        }
+
+        break;
+    }
+
+    return $roles;
+}
+
+$rolesDesdeJson = cargarRolesDesdeJson(__DIR__ . '/../Configuracion/Rol.json');
+$ROL_VENTAS = $rolesDesdeJson['Ventas'] ?? 1;
+$ROL_ADMIN = $rolesDesdeJson['Administrador'] ?? 3;
+$ROL_COORDINADOR = $rolesDesdeJson['Coordinador'] ?? 5;
+
 $rolActual = isset($rol) ? (int) $rol : 0;
-$puedeAsignar = ($rolActual === 3 || $rolActual === 5);
+$puedeAsignar = in_array($rolActual, [$ROL_VENTAS, $ROL_ADMIN, $ROL_COORDINADOR], true);
 
 $mensaje = null;
+$conflictoPendiente = null;
 
 function mensajeAlerta(string $tipo, string $texto): array
 {
@@ -51,6 +106,7 @@ function hoySolo(): string
 
 // Cargar lista de psicologos activos.
 $psicologos = [];
+$psicologoNombrePorId = [];
 if ($stmtPsic = $conn->prepare(
     "SELECT usu.id, usu.name\n"
     . "FROM Usuarios usu\n"
@@ -68,6 +124,7 @@ if ($stmtPsic = $conn->prepare(
                 'id' => (int) $fila['id'],
                 'name' => (string) $fila['name'],
             ];
+            $psicologoNombrePorId[(int) $fila['id']] = (string) $fila['name'];
         }
     }
     $stmtPsic->close();
@@ -79,6 +136,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'asign
     } else {
         $citaId = intPost('cita_id');
         $nuevoPsicologoId = intPost('psicologo_id');
+        $forzarAsignacion = intPost('forzar_asignacion') === 1;
 
         if ($citaId <= 0) {
             $mensaje = mensajeAlerta('danger', 'La cita seleccionada no es valida.');
@@ -114,16 +172,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'asign
                 $psicologoActual = null;
                 $estatusActual = null;
                 $pacienteNombre = null;
+                $tiempoCita = 60;
 
                 if ($stmtCita = $conn->prepare(
-                    'SELECT ci.Programado, ci.IdUsuario, ci.Estatus, n.name '
+                    'SELECT ci.Programado, ci.IdUsuario, ci.Estatus, n.name, COALESCE(ci.Tiempo, 60) '
                     . 'FROM Cita ci '
                     . 'INNER JOIN nino n ON n.id = ci.IdNino '
                     . 'WHERE ci.id = ? FOR UPDATE'
                 )) {
                     $stmtCita->bind_param('i', $citaId);
                     $stmtCita->execute();
-                    $stmtCita->bind_result($programado, $psicologoActual, $estatusActual, $pacienteNombre);
+                    $stmtCita->bind_result($programado, $psicologoActual, $estatusActual, $pacienteNombre, $tiempoCita);
                     $stmtCita->fetch();
                     $stmtCita->close();
                 }
@@ -145,31 +204,50 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'asign
                     throw new Exception('Solo se pueden asignar citas con fecha mayor o igual a hoy.');
                 }
 
-                // Validar traslape (se asume duracion de 1 hora).
+                // Validar traslape usando la duracion real de la cita.
                 $traslape = 0;
+                $citaConflictoId = 0;
+                $citaConflictoProgramado = null;
+                $citaConflictoPaciente = null;
                 if ($stmtTraslape = $conn->prepare(
-                    'SELECT COUNT(*) '
-                    . 'FROM Cita '
-                    . 'WHERE IdUsuario = ? '
-                    . '  AND Estatus IN (2, 3) '
-                    . '  AND id <> ? '
-                    . '  AND Programado < DATE_ADD(?, INTERVAL 1 HOUR) '
-                    . '  AND DATE_ADD(Programado, INTERVAL 1 HOUR) > ?'
+                    'SELECT ci.id, ci.Programado, n.name '
+                    . 'FROM Cita ci '
+                    . 'INNER JOIN nino n ON n.id = ci.IdNino '
+                    . 'WHERE ci.IdUsuario = ? '
+                    . '  AND ci.Estatus IN (2, 3) '
+                    . '  AND ci.id <> ? '
+                    . '  AND ci.Programado < DATE_ADD(?, INTERVAL ? MINUTE) '
+                    . '  AND DATE_ADD(ci.Programado, INTERVAL COALESCE(ci.Tiempo, 60) MINUTE) > ? '
+                    . 'ORDER BY ci.Programado ASC '
+                    . 'LIMIT 1'
                 )) {
-                    $stmtTraslape->bind_param('iiss', $nuevoPsicologoId, $citaId, $programado, $programado);
+                    $stmtTraslape->bind_param('iisis', $nuevoPsicologoId, $citaId, $programado, $tiempoCita, $programado);
                     $stmtTraslape->execute();
-                    $stmtTraslape->bind_result($traslape);
-                    $stmtTraslape->fetch();
+                    $stmtTraslape->bind_result($citaConflictoId, $citaConflictoProgramado, $citaConflictoPaciente);
+                    if ($stmtTraslape->fetch()) {
+                        $traslape = 1;
+                    }
                     $stmtTraslape->close();
                 }
 
-                if ((int) $traslape > 0) {
-                    throw new Exception('El psicologo seleccionado ya tiene una cita que se traslapa con este horario.');
+                if ((int) $traslape > 0 && !$forzarAsignacion) {
+                    $conflictoPendiente = [
+                        'cita_id' => $citaId,
+                        'psicologo_id' => $nuevoPsicologoId,
+                        'psicologo_nombre' => $psicologoNombrePorId[$nuevoPsicologoId] ?? ('#' . $nuevoPsicologoId),
+                        'programado' => (string) $programado,
+                        'paciente' => (string) $pacienteNombre,
+                        'cita_conflicto_id' => (int) $citaConflictoId,
+                        'cita_conflicto_programado' => (string) $citaConflictoProgramado,
+                        'cita_conflicto_paciente' => (string) $citaConflictoPaciente,
+                    ];
+                    throw new Exception('__CONFLICTO_ASIGNACION__');
                 }
 
                 // Actualizar asignacion.
-                if ($stmtUpd = $conn->prepare('UPDATE Cita SET IdUsuario = ? WHERE id = ?')) {
-                    $stmtUpd->bind_param('ii', $nuevoPsicologoId, $citaId);
+                $forzada = $forzarAsignacion ? 1 : 0;
+                if ($stmtUpd = $conn->prepare('UPDATE Cita SET IdUsuario = ?, forzada = ? WHERE id = ?')) {
+                    $stmtUpd->bind_param('iii', $nuevoPsicologoId, $forzada, $citaId);
                     if (!$stmtUpd->execute()) {
                         $stmtUpd->close();
                         throw new Exception('No fue posible actualizar la cita.');
@@ -181,20 +259,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['accion'] ?? '') === 'asign
 
                 $usuarioLog = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
                 $descripcion = sprintf(
-                    'Asigno cita #%d (%s) del paciente %s al psicologo #%d (antes #%d).',
+                    'Asigno cita #%d (%s) del paciente %s al psicologo #%d (antes #%d)%s.',
                     $citaId,
                     (string) $programado,
                     (string) $pacienteNombre,
                     $nuevoPsicologoId,
-                    $USUARIO_NUEVA_ENTREVISTA_ID
+                    $USUARIO_NUEVA_ENTREVISTA_ID,
+                    $forzarAsignacion ? ' con asignacion forzada' : ''
                 );
                 registrarLog($conn, $usuarioLog, 'citas', 'asignar_nueva_entrevista', $descripcion, 'Cita', (string) $citaId);
 
                 $conn->commit();
-                $mensaje = mensajeAlerta('success', 'Cita asignada correctamente.');
+                $mensaje = mensajeAlerta('success', $forzarAsignacion ? 'Cita asignada correctamente como forzada.' : 'Cita asignada correctamente.');
             } catch (Exception $e) {
                 $conn->rollback();
-                $mensaje = mensajeAlerta('danger', $e->getMessage());
+                if ($e->getMessage() === '__CONFLICTO_ASIGNACION__') {
+                    $mensaje = mensajeAlerta('warning', 'La psicologa seleccionada ya tiene una cita en ese horario. Puedes forzar la asignacion si deseas continuar.');
+                } else {
+                    $mensaje = mensajeAlerta('danger', $e->getMessage());
+                }
             }
         }
     }
@@ -230,14 +313,31 @@ if ($stmtCitas = $conn->prepare(
 }
 ?>
 
-<div class="page-header">
+<div class="">
   <h3 class="fw-bold mb-3">Asignacion de nueva entrevista</h3>
+  <br>
   <p class="text-muted mb-0">Solo se muestran citas con fecha mayor o igual a hoy y asignadas al usuario "Nueva entrevista" (ID <?php echo (int) $USUARIO_NUEVA_ENTREVISTA_ID; ?>).</p>
 </div>
 
 <?php if ($mensaje && isset($mensaje['texto'])) { ?>
   <div class="alert alert-<?php echo htmlspecialchars($mensaje['tipo']); ?>" role="alert">
     <?php echo htmlspecialchars($mensaje['texto']); ?>
+  </div>
+<?php } ?>
+
+<?php if ($conflictoPendiente) { ?>
+  <div class="alert alert-warning" role="alert">
+    <div><strong>Conflicto detectado.</strong> La psicologa <?php echo htmlspecialchars((string) $conflictoPendiente['psicologo_nombre']); ?> ya tiene una cita en el horario de <?php echo htmlspecialchars((string) $conflictoPendiente['programado']); ?>.</div>
+    <?php if (!empty($conflictoPendiente['cita_conflicto_id'])) { ?>
+      <div class="small mt-1">Cita en conflicto: #<?php echo (int) $conflictoPendiente['cita_conflicto_id']; ?> | <?php echo htmlspecialchars((string) $conflictoPendiente['cita_conflicto_programado']); ?> | <?php echo htmlspecialchars((string) $conflictoPendiente['cita_conflicto_paciente']); ?></div>
+    <?php } ?>
+    <form method="POST" class="mt-3 mb-0">
+      <input type="hidden" name="accion" value="asignar_psicologo">
+      <input type="hidden" name="cita_id" value="<?php echo (int) $conflictoPendiente['cita_id']; ?>">
+      <input type="hidden" name="psicologo_id" value="<?php echo (int) $conflictoPendiente['psicologo_id']; ?>">
+      <input type="hidden" name="forzar_asignacion" value="1">
+      <button type="submit" class="btn btn-warning btn-sm" onclick="return confirm('La psicologa ya tiene una cita en ese horario. Esta asignacion se marcara como forzada. ¿Deseas continuar?');">Asignar de todos modos</button>
+    </form>
   </div>
 <?php } ?>
 

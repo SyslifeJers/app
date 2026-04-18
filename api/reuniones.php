@@ -22,6 +22,8 @@ $metodo = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $usuarioId = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $ROL_PRACTICANTE = 6;
+$ROL_VENTAS = 1;
+$ROL_ADMIN = 3;
 
 if ($usuarioId <= 0) {
     respuesta(401, ['success' => false, 'message' => 'No autenticado.']);
@@ -29,6 +31,55 @@ if ($usuarioId <= 0) {
 
 if ($metodo === 'POST' && $rolUsuario === $ROL_PRACTICANTE) {
     respuesta(403, ['success' => false, 'message' => 'No tienes permisos para crear reuniones.']);
+}
+
+function obtenerIdReunion(): int
+{
+    $idRaw = isset($_GET['id']) ? trim((string) $_GET['id']) : '';
+    if ($idRaw === '' || !ctype_digit($idRaw)) {
+        respuesta(400, ['success' => false, 'message' => 'El parámetro id es obligatorio y debe ser un número entero positivo.']);
+    }
+    $id = (int) $idRaw;
+    if ($id <= 0) {
+        respuesta(400, ['success' => false, 'message' => 'El parámetro id debe ser mayor que cero.']);
+    }
+    return $id;
+}
+
+function exigirRolGestion(int $rolUsuario, int $rolVentas, int $rolAdmin): void
+{
+    if ($rolUsuario !== $rolVentas && $rolUsuario !== $rolAdmin) {
+        respuesta(403, ['success' => false, 'message' => 'No tienes permisos para modificar reuniones.']);
+    }
+}
+
+function leerJson(): array
+{
+    $payload = json_decode((string) file_get_contents('php://input'), true);
+    if (!is_array($payload)) {
+        respuesta(400, ['success' => false, 'message' => 'Datos inválidos.']);
+    }
+    return $payload;
+}
+
+function normalizarFechaReunion(string $valor, string $campo): DateTime
+{
+    $valor = trim($valor);
+    if ($valor === '') {
+        respuesta(422, ['success' => false, 'message' => "{$campo} es obligatorio."]);
+        throw new RuntimeException('Unreachable');
+    }
+
+    $formatos = ['Y-m-d\\TH:i', 'Y-m-d H:i:s', DateTime::ATOM];
+    foreach ($formatos as $formato) {
+        $fecha = DateTime::createFromFormat($formato, $valor);
+        if ($fecha instanceof DateTime) {
+            return $fecha;
+        }
+    }
+
+    respuesta(422, ['success' => false, 'message' => "{$campo} no tiene un formato válido."]);
+    throw new RuntimeException('Unreachable');
 }
 
 if ($metodo === 'GET') {
@@ -65,6 +116,98 @@ if ($metodo === 'GET') {
     }
 
     respuesta(200, ['success' => true, 'data' => $reuniones]);
+}
+
+if ($metodo === 'PUT') {
+    exigirRolGestion($rolUsuario, $ROL_VENTAS, $ROL_ADMIN);
+    $id = obtenerIdReunion();
+    $payload = leerJson();
+
+    $inicioDate = normalizarFechaReunion((string) ($payload['inicio'] ?? ''), 'inicio');
+    $finDate = normalizarFechaReunion((string) ($payload['fin'] ?? ''), 'fin');
+
+    if ($finDate <= $inicioDate) {
+        respuesta(422, ['success' => false, 'message' => 'La fecha de fin debe ser mayor a la de inicio.']);
+    }
+
+    $inicioSql = $inicioDate->format('Y-m-d H:i:s');
+    $finSql = $finDate->format('Y-m-d H:i:s');
+
+    $stmtCheck = $conn->prepare('SELECT id FROM ReunionInterna WHERE id = ?');
+    if (!$stmtCheck) {
+        respuesta(500, ['success' => false, 'message' => 'No fue posible validar la reunión.']);
+    }
+    $stmtCheck->bind_param('i', $id);
+    $stmtCheck->execute();
+    $result = $stmtCheck->get_result();
+    $exists = $result ? $result->fetch_assoc() : null;
+    $stmtCheck->close();
+    if (!$exists) {
+        respuesta(404, ['success' => false, 'message' => 'No se encontró la reunión.']);
+    }
+
+    $stmt = $conn->prepare('UPDATE ReunionInterna SET inicio = ?, fin = ? WHERE id = ?');
+    if (!$stmt) {
+        respuesta(500, ['success' => false, 'message' => 'No fue posible preparar la actualización.']);
+    }
+    $stmt->bind_param('ssi', $inicioSql, $finSql, $id);
+    if (!$stmt->execute()) {
+        $stmt->close();
+        respuesta(500, ['success' => false, 'message' => 'No fue posible actualizar la reunión.']);
+    }
+    $stmt->close();
+
+    respuesta(200, ['success' => true, 'message' => 'Reunión reprogramada correctamente.']);
+}
+
+if ($metodo === 'DELETE') {
+    exigirRolGestion($rolUsuario, $ROL_VENTAS, $ROL_ADMIN);
+    $id = obtenerIdReunion();
+
+    $stmtCheck = $conn->prepare('SELECT id FROM ReunionInterna WHERE id = ?');
+    if (!$stmtCheck) {
+        respuesta(500, ['success' => false, 'message' => 'No fue posible validar la reunión.']);
+    }
+    $stmtCheck->bind_param('i', $id);
+    $stmtCheck->execute();
+    $result = $stmtCheck->get_result();
+    $exists = $result ? $result->fetch_assoc() : null;
+    $stmtCheck->close();
+    if (!$exists) {
+        respuesta(404, ['success' => false, 'message' => 'No se encontró la reunión.']);
+    }
+
+    $conn->begin_transaction();
+    try {
+        $stmtRel = $conn->prepare('DELETE FROM ReunionInternaPsicologo WHERE reunion_id = ?');
+        if (!$stmtRel) {
+            throw new RuntimeException('No fue posible preparar la cancelación.');
+        }
+        $stmtRel->bind_param('i', $id);
+        if (!$stmtRel->execute()) {
+            $stmtRel->close();
+            throw new RuntimeException('No fue posible cancelar la reunión.');
+        }
+        $stmtRel->close();
+
+        $stmtDel = $conn->prepare('DELETE FROM ReunionInterna WHERE id = ?');
+        if (!$stmtDel) {
+            throw new RuntimeException('No fue posible preparar la cancelación.');
+        }
+        $stmtDel->bind_param('i', $id);
+        if (!$stmtDel->execute()) {
+            $stmtDel->close();
+            throw new RuntimeException('No fue posible cancelar la reunión.');
+        }
+        $stmtDel->close();
+
+        $conn->commit();
+    } catch (Throwable $e) {
+        $conn->rollback();
+        respuesta(500, ['success' => false, 'message' => $e->getMessage()]);
+    }
+
+    respuesta(200, ['success' => true, 'message' => 'Reunión cancelada correctamente.']);
 }
 
 if ($metodo === 'POST') {

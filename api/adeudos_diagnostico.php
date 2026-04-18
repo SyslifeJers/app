@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 session_start();
 header('Content-Type: application/json; charset=utf-8');
+date_default_timezone_set('America/Mexico_City');
 
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/../Modulos/logger.php';
+require_once __DIR__ . '/../Modulos/resumen_pagos.php';
 
 function responder(int $status, array $payload): void
 {
@@ -90,13 +92,13 @@ if ($accion === 'registrar_pago') {
 
     $conn->begin_transaction();
     try {
-        $stmt = $conn->prepare('SELECT nino_id, saldo_restante FROM AdeudosDiagnostico WHERE id = ? FOR UPDATE');
+        $stmt = $conn->prepare('SELECT ad.nino_id, ad.psicologo_id, ad.saldo_restante, n.name, COALESCE(u.name, "") FROM AdeudosDiagnostico ad INNER JOIN nino n ON n.id = ad.nino_id LEFT JOIN Usuarios u ON u.id = ad.psicologo_id WHERE ad.id = ? FOR UPDATE');
         if (!$stmt) {
             throw new RuntimeException('No fue posible preparar la consulta del adeudo.');
         }
         $stmt->bind_param('i', $adeudoId);
         $stmt->execute();
-        $stmt->bind_result($ninoId, $saldoRestante);
+        $stmt->bind_result($ninoId, $psicologoId, $saldoRestante, $pacienteNombre, $psicologoNombre);
         if (!$stmt->fetch()) {
             $stmt->close();
             throw new RuntimeException('Adeudo no encontrado.');
@@ -122,6 +124,22 @@ if ($accion === 'registrar_pago') {
             throw new RuntimeException('No fue posible guardar el pago.');
         }
         $stmtPago->close();
+
+        registrarResumenPago($conn, [
+            'origen' => 'adeudo_diagnostico',
+            'referencia_id' => $adeudoId,
+            'adeudo_id' => $adeudoId,
+            'paciente_id' => $ninoId,
+            'paciente_nombre' => (string) $pacienteNombre,
+            'psicologo_id' => $psicologoId !== null ? (int) $psicologoId : null,
+            'psicologo_nombre' => (string) $psicologoNombre,
+            'monto' => $montoAplicado,
+            'metodo_pago' => $metodoPago,
+            'fecha_pago' => date('Y-m-d H:i:s'),
+            'fecha_corte' => date('Y-m-d'),
+            'registrado_por' => $usuarioId,
+            'observaciones' => 'Abono a adeudo de diagnostico.',
+        ]);
 
         $stmtUpdate = $conn->prepare('UPDATE AdeudosDiagnostico SET saldo_restante = ?, estatus_id = ? WHERE id = ?');
         if (!$stmtUpdate) {

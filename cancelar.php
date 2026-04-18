@@ -5,6 +5,7 @@ ini_set('display_errors', 1);
 
 require_once 'conexion.php';
 require_once __DIR__ . '/Modulos/logger.php';
+require_once __DIR__ . '/Modulos/resumen_pagos.php';
 require_once __DIR__ . '/Modulos/saldo_pacientes.php';
 $conn = conectar();
 session_start();
@@ -77,10 +78,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $fechaProgramadaActual = null;
     $pacienteId = null;
     $costoCita = 0.0;
-    if ($stmtDatosCita = $conn->prepare('SELECT Programado, IdNino, costo FROM Cita WHERE id = ?')) {
+    $psicologoIdCita = null;
+    $pacienteNombreCita = '';
+    $psicologoNombreCita = '';
+    if ($stmtDatosCita = $conn->prepare('SELECT ci.Programado, ci.IdNino, ci.costo, ci.IdUsuario, n.name, u.name FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ?')) {
         $stmtDatosCita->bind_param('i', $citaId);
         $stmtDatosCita->execute();
-        $stmtDatosCita->bind_result($fechaProgramadaActual, $pacienteId, $costoCita);
+        $stmtDatosCita->bind_result($fechaProgramadaActual, $pacienteId, $costoCita, $psicologoIdCita, $pacienteNombreCita, $psicologoNombreCita);
         $stmtDatosCita->fetch();
         $stmtDatosCita->close();
     }
@@ -236,6 +240,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $stmtInsertPago->close();
                     throw new Exception('No fue posible guardar el detalle de los pagos.');
                 }
+
+                registrarResumenPago($conn, [
+                    'origen' => 'cita',
+                    'referencia_id' => $citaId,
+                    'cita_id' => $citaId,
+                    'paciente_id' => $pacienteId,
+                    'paciente_nombre' => $pacienteNombreCita,
+                    'psicologo_id' => $psicologoIdCita,
+                    'psicologo_nombre' => $psicologoNombreCita,
+                    'monto' => $monto,
+                    'metodo_pago' => $metodo,
+                    'fecha_pago' => $fechaActual,
+                    'fecha_corte' => substr($fechaActual, 0, 10),
+                    'registrado_por' => $idUsuario,
+                    'observaciones' => 'Pago registrado al finalizar cita.',
+                ]);
             }
 
             $stmtInsertPago->close();

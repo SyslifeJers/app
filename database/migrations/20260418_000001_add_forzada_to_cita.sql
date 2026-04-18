@@ -1,0 +1,2 @@
+ALTER TABLE `Cita`
+    ADD COLUMN `forzada` TINYINT(1) NOT NULL DEFAULT 0 AFTER `Tiempo`;
