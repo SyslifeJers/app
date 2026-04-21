@@ -1,115 +1,164 @@
 <?php
-// Datos de la conexión
+
 ini_set('error_reporting', E_ALL);
 ini_set('display_errors', 1);
 
 require_once 'conexion.php';
+require_once __DIR__ . '/Modulos/conflictos_agenda.php';
 require_once __DIR__ . '/Modulos/logger.php';
-$conn = conectar();
+
 session_start();
 
+$conn = conectar();
 date_default_timezone_set('America/Mexico_City');
-$fechaActual = date('Y-m-d H:i:s'); // Formato de fecha y hora actual
+$fechaActual = date('Y-m-d H:i:s');
 
 $idUsuario = $_SESSION['id'] ?? null;
 $rolUsuario = $_SESSION['rol'] ?? null;
+$isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH'])
+    && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
-if ($_SERVER['REQUEST_METHOD'] == 'POST') {
-    $citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
-    $fechaProgramada = $_POST['fechaProgramada'] ?? '';
+function finalizarReprogramacion(bool $success, string $mensaje, string $tipo = 'success', array $extra = []): void
+{
+    global $isAjax;
 
-    if ($citaId <= 0 || empty($fechaProgramada)) {
-        $_SESSION['reprogramacion_mensaje'] = 'La información de la cita es inválida.';
-        $_SESSION['reprogramacion_tipo'] = 'danger';
-        header('Location: index.php');
+    if ($isAjax) {
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(array_merge([
+            'success' => $success,
+            'message' => $mensaje,
+            'tipo' => $tipo,
+        ], $extra), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
 
-    // Constantes de rol
-    $ROL_VENTAS = 1;
-    $ROL_RECEPCION = 2;
-    $ROL_ADMIN = 3;
-    $ROL_COORDINADOR = 5;
-    $ROL_PRACTICANTE = 6;
+    $_SESSION['reprogramacion_mensaje'] = $mensaje;
+    $_SESSION['reprogramacion_tipo'] = $tipo;
 
-    if ($rolUsuario === $ROL_PRACTICANTE) {
-        $_SESSION['reprogramacion_mensaje'] = 'No tienes permisos para reprogramar citas.';
-        $_SESSION['reprogramacion_tipo'] = 'danger';
+    $redirectTo = isset($_POST['redirect_to']) ? trim((string) $_POST['redirect_to']) : '';
+    $redirectInvalido = $redirectTo === ''
+        || strpos($redirectTo, '://') !== false
+        || strpos($redirectTo, '//') === 0
+        || strpos($redirectTo, "\n") !== false
+        || strpos($redirectTo, "\r") !== false
+        || strpos($redirectTo, '..') !== false;
 
-        $redirectTo = isset($_POST['redirect_to']) ? trim((string) $_POST['redirect_to']) : '';
-        $redirectInvalido = $redirectTo === ''
-            || strpos($redirectTo, '://') !== false
-            || strpos($redirectTo, '//') === 0
-            || strpos($redirectTo, "\n") !== false
-            || strpos($redirectTo, "\r") !== false
-            || strpos($redirectTo, '..') !== false;
-        if ($redirectInvalido) {
-            $redirectTo = 'Citas/calendario.php';
-        }
-
-        header('Location: ' . $redirectTo);
-        exit;
+    if ($redirectInvalido) {
+        $redirectTo = 'index.php';
     }
 
-    $tablaSolicitudesDisponible = false;
-    $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
-    if ($tablaSolicitudes instanceof mysqli_result) {
-        $tablaSolicitudesDisponible = $tablaSolicitudes->num_rows > 0;
-        $tablaSolicitudes->free();
+    header('Location: ' . $redirectTo);
+    exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    $conn->close();
+    finalizarReprogramacion(false, 'Método no permitido.', 'danger');
+}
+
+$citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
+$fechaProgramada = $_POST['fechaProgramada'] ?? '';
+$forzar = isset($_POST['forzar']) && (int) $_POST['forzar'] === 1;
+
+if ($citaId <= 0 || empty($fechaProgramada)) {
+    $conn->close();
+    finalizarReprogramacion(false, 'La información de la cita es inválida.', 'danger');
+}
+
+$ROL_VENTAS = 1;
+$ROL_RECEPCION = 2;
+$ROL_ADMIN = 3;
+$ROL_COORDINADOR = 5;
+$ROL_PRACTICANTE = 6;
+
+if ($rolUsuario === $ROL_PRACTICANTE) {
+    $conn->close();
+    finalizarReprogramacion(false, 'No tienes permisos para reprogramar citas.', 'danger');
+}
+
+$tablaSolicitudesDisponible = false;
+$tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
+if ($tablaSolicitudes instanceof mysqli_result) {
+    $tablaSolicitudesDisponible = $tablaSolicitudes->num_rows > 0;
+    $tablaSolicitudes->free();
+}
+
+$conn->begin_transaction();
+
+try {
+    $fechaAnteriorParaRegistro = null;
+    $psicologoIdCita = 0;
+    $tiempoCita = 60;
+    $pacienteIdCita = 0;
+
+    $stmtCita = $conn->prepare('SELECT Programado, IdUsuario, COALESCE(Tiempo, 60), IdNino FROM Cita WHERE id = ? FOR UPDATE');
+    if (!$stmtCita) {
+        throw new RuntimeException('No fue posible localizar la cita.');
     }
+    $stmtCita->bind_param('i', $citaId);
+    $stmtCita->execute();
+    $stmtCita->bind_result($fechaAnteriorParaRegistro, $psicologoIdCita, $tiempoCita, $pacienteIdCita);
+    if (!$stmtCita->fetch()) {
+        $stmtCita->close();
+        throw new RuntimeException('La cita seleccionada no existe.');
+    }
+    $stmtCita->close();
 
     $shouldRegistrarAutoSolicitud = $tablaSolicitudesDisponible
         && $rolUsuario === $ROL_RECEPCION
         && empty($_POST['solicitudId'])
-        && $idUsuario !== null;
+        && $idUsuario !== null
+        && !empty($fechaAnteriorParaRegistro);
 
-    $fechaAnteriorParaRegistro = null;
-    if ($shouldRegistrarAutoSolicitud) {
-        $stmtFechaAnterior = $conn->prepare('SELECT Programado FROM Cita WHERE id = ?');
-        if ($stmtFechaAnterior) {
-            $stmtFechaAnterior->bind_param('i', $citaId);
-            $stmtFechaAnterior->execute();
-            $stmtFechaAnterior->bind_result($fechaAnteriorParaRegistro);
-            $stmtFechaAnterior->fetch();
-            $stmtFechaAnterior->close();
-
-            if (empty($fechaAnteriorParaRegistro)) {
-                $shouldRegistrarAutoSolicitud = false;
-            }
-        } else {
-            $shouldRegistrarAutoSolicitud = false;
-        }
+    $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, (int) $psicologoIdCita, $fechaProgramada, (int) $tiempoCita, $citaId, (int) $pacienteIdCita);
+    if ($conflictoAgenda !== null && !$forzar) {
+        $conn->rollback();
+        finalizarReprogramacion(
+            false,
+            'La psicóloga seleccionada ya tiene una cita en ese horario.',
+            'warning',
+            construirPayloadConflictoAgenda($conflictoAgenda)
+        );
     }
 
-    // Actualización directa para coordinadores, administradores u otros roles autorizados
-    $stmt = $conn->prepare('UPDATE Cita SET Programado = ?, Estatus = 3 WHERE id = ?');
-    $stmt->bind_param('si', $fechaProgramada, $citaId);
-    $stmt->execute();
+    $forzada = ($conflictoAgenda !== null && $forzar) ? 1 : 0;
+
+    $stmt = $conn->prepare('UPDATE Cita SET Programado = ?, Estatus = 3, forzada = ? WHERE id = ?');
+    if (!$stmt) {
+        throw new RuntimeException('No fue posible preparar la reprogramación.');
+    }
+    $stmt->bind_param('sii', $fechaProgramada, $forzada, $citaId);
+    if (!$stmt->execute()) {
+        $stmt->close();
+        throw new RuntimeException('No fue posible actualizar la cita.');
+    }
     $stmt->close();
 
     $stmtInsert = $conn->prepare('INSERT INTO HistorialEstatus(id, fecha, idEstatus, idCita, idUsuario) VALUES (null, ?, 3, ?, ?)');
-    $stmtInsert->bind_param('sii', $fechaActual, $citaId, $idUsuario);
-    $stmtInsert->execute();
-    $stmtInsert->close();
+    if ($stmtInsert) {
+        $stmtInsert->bind_param('sii', $fechaActual, $citaId, $idUsuario);
+        $stmtInsert->execute();
+        $stmtInsert->close();
+    }
 
     registrarLog(
         $conn,
         $idUsuario,
         'citas',
         'reprogramar',
-        sprintf('La cita #%d fue reprogramada para %s.', $citaId, $fechaProgramada),
+        sprintf('La cita #%d fue reprogramada para %s%s.', $citaId, $fechaProgramada, $forzada === 1 ? ' con conflicto forzado' : ''),
         'Cita',
         (string) $citaId
     );
 
-    // Si la actualización proviene de una solicitud, marcarla como atendida automáticamente
-    // cuando la aprueba un coordinador o administrador
     if (!empty($_POST['solicitudId']) && in_array($rolUsuario, [$ROL_COORDINADOR, $ROL_ADMIN], true)) {
         $solicitudId = (int) $_POST['solicitudId'];
         $stmtAtendida = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = IFNULL(comentarios, '') WHERE id = ?");
-        $stmtAtendida->bind_param('isi', $idUsuario, $fechaActual, $solicitudId);
-        $stmtAtendida->execute();
-        $stmtAtendida->close();
+        if ($stmtAtendida) {
+            $stmtAtendida->bind_param('isi', $idUsuario, $fechaActual, $solicitudId);
+            $stmtAtendida->execute();
+            $stmtAtendida->close();
+        }
 
         registrarLog(
             $conn,
@@ -142,24 +191,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         }
     }
 
-    $_SESSION['reprogramacion_mensaje'] = 'Fecha de cita actualizada correctamente.';
-    $_SESSION['reprogramacion_tipo'] = 'success';
-
-    $redirectTo = isset($_POST['redirect_to']) ? trim((string) $_POST['redirect_to']) : '';
-    $redirectInvalido = $redirectTo === ''
-        || strpos($redirectTo, '://') !== false
-        || strpos($redirectTo, '//') === 0
-        || strpos($redirectTo, "\n") !== false
-        || strpos($redirectTo, "\r") !== false
-        || strpos($redirectTo, '..') !== false;
-
-    if ($redirectInvalido) {
-        $redirectTo = 'index.php';
-    }
-
-    header('Location: ' . $redirectTo);
-    exit;
+    $conn->commit();
+    $conn->close();
+    finalizarReprogramacion(true, $forzada === 1 ? 'Fecha de cita actualizada correctamente como forzada.' : 'Fecha de cita actualizada correctamente.', 'success', ['forzada' => $forzada === 1]);
+} catch (Throwable $e) {
+    $conn->rollback();
+    $conn->close();
+    finalizarReprogramacion(false, $e->getMessage(), 'danger');
 }
-
-$conn->close();
-?>

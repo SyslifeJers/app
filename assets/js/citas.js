@@ -721,26 +721,17 @@ function agendarProximaCita() {
   formData.append('sendIdPaquete', '');
   formData.append('paqueteMetodo', '');
 
-  fetch('procesar_cita.php', {
-    method: 'POST',
-    body: formData
-  })
-    .then((response) => response.json().catch(() => null))
-    .then((data) => {
-      if (data && data.success) {
-        alert('La próxima cita se agendó correctamente.');
-        proximaCitaState.reloading = true;
-        if (proximaCitaState.modal) {
-          proximaCitaState.modal.hide();
-        }
-        window.location.reload();
-      } else {
-        alert(data && data.message ? data.message : 'No fue posible agendar la próxima cita.');
+  enviarSolicitudCita(formData, {
+    successMessage: 'La próxima cita se agendó correctamente.',
+    errorMessage: 'No fue posible agendar la próxima cita.',
+    onSuccess: function () {
+      proximaCitaState.reloading = true;
+      if (proximaCitaState.modal) {
+        proximaCitaState.modal.hide();
       }
-    })
-    .catch(() => {
-      alert('No fue posible agendar la próxima cita.');
-    });
+      window.location.reload();
+    }
+  });
 }
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target.closest('.pagar-cita-btn') : null;
@@ -780,26 +771,84 @@ if (proximaFechaInput) {
   proximaFechaInput.addEventListener('blur', () => normalizarHoraCerradaInput(proximaFechaInput));
 }
 
-function enviarFormularioJSON() {
-const form = document.getElementById('formCita');
-const formData = new FormData(form);
-
-fetch('procesar_cita.php', {
-  method: 'POST',
-  body: formData
-})
-.then(response => response.json())
-.then(data => {
-  if (data.success) {
-    alert('Cita guardada con éxito');
-    window.location.href = 'index.php'; // o mostrar modal de éxito
-  } else {
-    alert('Error: ' + data.message);
+function duplicarFormData(origen) {
+  const copia = new FormData();
+  if (!(origen instanceof FormData)) {
+    return copia;
   }
-})
-.catch(error => {
-  alert('Error en el servidor: ' + error.message);
-});
+
+  origen.forEach((valor, llave) => {
+    copia.append(llave, valor);
+  });
+
+  return copia;
+}
+
+function esConflictoAgenda(data) {
+  return Boolean(data && data.conflict && data.conflict_type === 'psicologo_ocupado');
+}
+
+function construirMensajeConflicto(data) {
+  const conflicto = data && data.conflict_data ? data.conflict_data : null;
+  let mensaje = (data && data.message) ? data.message : 'La psicóloga seleccionada ya tiene una cita en ese horario.';
+
+  if (conflicto && conflicto.paciente) {
+    mensaje += '\n\nPaciente en conflicto: ' + conflicto.paciente + '.';
+  }
+
+  if (conflicto && conflicto.programado) {
+    mensaje += '\nHorario ocupado: ' + conflicto.programado + '.';
+  }
+
+  mensaje += '\n\nSi continúas, la cita se marcará como forzada. ¿Deseas continuar?';
+  return mensaje;
+}
+
+function enviarSolicitudCita(formData, opciones = {}) {
+  const successMessage = opciones.successMessage || 'Cita guardada con éxito';
+  const errorMessage = opciones.errorMessage || 'No fue posible guardar la cita.';
+  const onSuccess = typeof opciones.onSuccess === 'function'
+    ? opciones.onSuccess
+    : function () {
+        window.location.href = 'index.php';
+      };
+
+  fetch('procesar_cita.php', {
+    method: 'POST',
+    body: formData
+  })
+    .then((response) => response.json().catch(() => null).then((data) => ({ ok: response.ok, data })))
+    .then(({ ok, data }) => {
+      if (ok && data && data.success) {
+        alert(successMessage);
+        onSuccess(data);
+        return;
+      }
+
+      if (esConflictoAgenda(data)) {
+        if (!window.confirm(construirMensajeConflicto(data))) {
+          return;
+        }
+
+        const siguienteIntento = duplicarFormData(formData);
+        siguienteIntento.set('forzar', '1');
+        enviarSolicitudCita(siguienteIntento, opciones);
+        return;
+      }
+
+      alert((data && data.message) ? data.message : errorMessage);
+    })
+    .catch((error) => {
+      alert('Error en el servidor: ' + error.message);
+    });
+}
+
+function enviarFormularioJSON() {
+  const form = document.getElementById('formCita');
+  const formData = new FormData(form);
+  enviarSolicitudCita(formData, {
+    successMessage: 'Cita guardada con éxito'
+  });
 }
 
 function actualizarCita(idCita, estatus) {
@@ -1155,6 +1204,54 @@ if (fechaProgramadaInput) {
   fechaProgramadaInput.addEventListener('change', () => normalizarHoraCerradaInput(fechaProgramadaInput));
   fechaProgramadaInput.addEventListener('blur', () => normalizarHoraCerradaInput(fechaProgramadaInput));
 }
+
+const updateForm = document.getElementById('updateForm');
+if (updateForm) {
+  updateForm.addEventListener('submit', function (event) {
+    event.preventDefault();
+
+    if (fechaProgramadaInput) {
+      normalizarHoraCerradaInput(fechaProgramadaInput);
+    }
+
+    const enviarReprogramacion = function (formData) {
+      fetch(updateForm.getAttribute('action') || 'update.php', {
+        method: 'POST',
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest'
+        },
+        body: formData
+      })
+        .then((response) => response.json().catch(() => null).then((data) => ({ ok: response.ok, data })))
+        .then(({ ok, data }) => {
+          if (ok && data && data.success) {
+            alert(data.message || 'Fecha de cita actualizada correctamente.');
+            window.location.reload();
+            return;
+          }
+
+          if (esConflictoAgenda(data)) {
+            if (!window.confirm(construirMensajeConflicto(data))) {
+              return;
+            }
+
+            const siguienteIntento = duplicarFormData(formData);
+            siguienteIntento.set('forzar', '1');
+            enviarReprogramacion(siguienteIntento);
+            return;
+          }
+
+          alert((data && data.message) ? data.message : 'No fue posible actualizar la cita.');
+        })
+        .catch(() => {
+          alert('No fue posible actualizar la cita.');
+        });
+    };
+
+    enviarReprogramacion(new FormData(updateForm));
+  });
+}
+
 $(document).ready(function () {
   document.getElementById('idResultado').style.display = "none";
   $('#myTable').DataTable({
@@ -1176,11 +1273,13 @@ $(document).ready(function () {
 });
 function revisarCita() {
   var idUsuario = document.getElementById('sendIdPsicologo').value;
+  var idNino = document.getElementById('sendIdCliente').value;
   var resumenFecha = document.getElementById('resumenFecha').value;
   var resumenTiempo = document.getElementById('resumenTiempo') ? document.getElementById('resumenTiempo').value : '60';
   console.log(idUsuario, resumenFecha)
   var formData = new FormData();
   formData.append('IdUsuario', idUsuario);
+  formData.append('IdNino', idNino);
   formData.append('resumenFecha', resumenFecha);
   formData.append('resumenTiempo', resumenTiempo);
 

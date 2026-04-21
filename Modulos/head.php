@@ -207,10 +207,6 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
          <a class="nav-link" href="/Citas/calendario.php"><i class="far fa-calendar-alt"></i>Calendario <span class="sr-only"></span></a>
        </li>
 
-       <li class="nav-item ">
-         <a class="nav-link" href="/Citas/calendario_demo2.php"><i class="far fa-calendar"></i>Calendario Demo 2 <span class="sr-only"></span></a>
-       </li>
-
       <?php if (!$esPracticante) { ?>
         <li class="nav-item ">
           <a class="nav-link" href="/Tickets/index.php"><i class="fas fa-ticket-alt"></i><?php echo ($rol === 3) ? 'Tickets' : 'Soporte'; ?> <span class="sr-only"></span></a>
@@ -244,9 +240,7 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
       <?php } ?>
 
        <?php if ($rol == 3 || $rol == 5) {?>
-                   <li class="nav-item ">
-        <a class="nav-link" href="/Reportes/index.php"><i class="fas fa-chart-pie"></i>Reportes <span class="sr-only"></span></a>
-      </li>
+                   
       <li class="nav-item ">
         <a class="nav-link" href="/Configuracion/index.php"><i class="fas fa-hammer"></i>Configuración <span class="sr-only"></span></a>
       </li>

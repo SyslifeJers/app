@@ -112,20 +112,23 @@ if ($pacienteFiltro !== null) {
 }
 
 $sqlCitas = 'SELECT ci.id,
-                ci.Programado,
-                ci.Tiempo,
-                ci.Tipo,
-                ci.FormaPago,
-                ci.costo,
-                ci.IdUsuario AS psicologo_id,
-                n.name AS paciente,
-                us.name AS psicologo,
-                co.codigo_hex AS psicologo_color,
-                es.name AS estatus'
+                 ci.Programado,
+                 ci.Tiempo,
+                 ci.Tipo,
+                 ci.FormaPago,
+                 ci.costo,
+                 ci.IdUsuario AS psicologo_id,
+                 n.name AS paciente,
+                 c.telefono AS contacto_telefono,
+                 c.correo AS contacto_correo,
+                 us.name AS psicologo,
+                 co.codigo_hex AS psicologo_color,
+                 es.name AS estatus'
     . $selectSolicitudesReprogramacion
     . $selectSolicitudesCancelacion
     . ' FROM Cita ci
         INNER JOIN nino n ON n.id = ci.IdNino
+        LEFT JOIN Clientes c ON c.id = n.idtutor
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         LEFT JOIN colores co ON co.id = us.color_id
         INNER JOIN Estatus es ON es.id = ci.Estatus'
@@ -169,6 +172,8 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
         'event_kind' => 'cita',
         'entity_id' => (int) $fila['id'],
         'paciente' => $fila['paciente'],
+        'contacto_telefono' => $fila['contacto_telefono'],
+        'contacto_correo' => $fila['contacto_correo'],
         'psicologo' => $fila['psicologo'],
         'psicologo_id' => (int) $fila['psicologo_id'],
         'psicologo_color' => $fila['psicologo_color'] ?? null,
@@ -184,6 +189,152 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
     ];
 }
 $stmtCitas->close();
+
+$condicionesReservacion = ['rc.activo = 1'];
+$tiposReservacion = '';
+$parametrosReservacion = [];
+
+if ($psicologoId !== null) {
+    $condicionesReservacion[] = 'rc.psicologo_id = ?';
+    $tiposReservacion .= 'i';
+    $parametrosReservacion[] = $psicologoId;
+}
+
+if ($pacienteFiltro !== null) {
+    $condicionesReservacion[] = 'LOWER(n.name) LIKE ?';
+    $tiposReservacion .= 's';
+    $parametrosReservacion[] = '%' . $pacienteFiltro . '%';
+}
+
+if ($fechaFin !== null) {
+    $condicionesReservacion[] = 'rc.fecha_inicio <= DATE(?)';
+    $tiposReservacion .= 's';
+    $parametrosReservacion[] = $fechaFin;
+}
+
+if ($fechaInicio !== null) {
+    $condicionesReservacion[] = '(rc.fecha_fin IS NULL OR rc.fecha_fin >= DATE(?))';
+    $tiposReservacion .= 's';
+    $parametrosReservacion[] = $fechaInicio;
+}
+
+$sqlReservaciones = 'SELECT rc.id,
+                            rc.paciente_id,
+                            rc.psicologo_id,
+                            rc.tipo,
+                            rc.hora_inicio,
+                            rc.tiempo,
+                            rc.fecha_inicio,
+                            rc.fecha_fin,
+                            rc.forzada,
+                            n.name AS paciente,
+                            u.name AS psicologo,
+                            co.codigo_hex AS psicologo_color,
+                            GROUP_CONCAT(rcd.dia_semana ORDER BY rcd.dia_semana SEPARATOR ",") AS dias_semana
+                     FROM ReservacionContinua rc
+                     INNER JOIN nino n ON n.id = rc.paciente_id
+                     INNER JOIN Usuarios u ON u.id = rc.psicologo_id
+                     LEFT JOIN colores co ON co.id = u.color_id
+                     INNER JOIN ReservacionContinuaDia rcd ON rcd.reservacion_id = rc.id
+                     WHERE ' . implode(' AND ', $condicionesReservacion) . '
+                     GROUP BY rc.id, rc.paciente_id, rc.psicologo_id, rc.tipo, rc.hora_inicio, rc.tiempo, rc.fecha_inicio, rc.fecha_fin, rc.forzada, n.name, u.name, co.codigo_hex
+                     ORDER BY rc.fecha_inicio ASC, rc.hora_inicio ASC';
+
+$stmtReservaciones = $conn->prepare($sqlReservaciones);
+if ($stmtReservaciones === false) {
+    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de reservaciones continuas.']);
+}
+
+if ($tiposReservacion !== '') {
+    $stmtReservaciones->bind_param($tiposReservacion, ...$parametrosReservacion);
+}
+
+if (!$stmtReservaciones->execute()) {
+    $stmtReservaciones->close();
+    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de reservaciones continuas.']);
+}
+
+$rangeStartDate = $fechaInicio !== null ? new DateTime(substr($fechaInicio, 0, 10), $timezone) : new DateTime('first day of this month', $timezone);
+$rangeEndDate = $fechaFin !== null ? new DateTime(substr($fechaFin, 0, 10), $timezone) : new DateTime('last day of this month', $timezone);
+if ($fechaFin !== null) {
+    $rangeEndDate->modify('-1 day');
+}
+
+$resultadoReservaciones = $stmtReservaciones->get_result();
+while ($fila = $resultadoReservaciones->fetch_assoc()) {
+    $diasSemana = array_values(array_filter(array_map('intval', explode(',', (string) ($fila['dias_semana'] ?? '')))));
+    if ($diasSemana === []) {
+        continue;
+    }
+
+    $fechaInicioReserva = DateTime::createFromFormat('Y-m-d', (string) $fila['fecha_inicio'], $timezone);
+    if (!$fechaInicioReserva) {
+        continue;
+    }
+
+    $fechaFinReserva = null;
+    if (!empty($fila['fecha_fin'])) {
+        $fechaFinReserva = DateTime::createFromFormat('Y-m-d', (string) $fila['fecha_fin'], $timezone);
+    }
+
+    $iteracionInicio = clone $rangeStartDate;
+    if ($iteracionInicio < $fechaInicioReserva) {
+        $iteracionInicio = clone $fechaInicioReserva;
+    }
+
+    $iteracionFin = clone $rangeEndDate;
+    if ($fechaFinReserva instanceof DateTime && $iteracionFin > $fechaFinReserva) {
+        $iteracionFin = clone $fechaFinReserva;
+    }
+
+    if ($iteracionInicio > $iteracionFin) {
+        continue;
+    }
+
+    $duracion = isset($fila['tiempo']) ? (int) $fila['tiempo'] : 60;
+    if ($duracion <= 0) {
+        $duracion = 60;
+    }
+
+    $horaInicio = DateTime::createFromFormat('H:i:s', (string) $fila['hora_inicio'], $timezone);
+    if (!$horaInicio) {
+        continue;
+    }
+
+    $cursor = clone $iteracionInicio;
+    while ($cursor <= $iteracionFin) {
+        $diaSemana = (int) $cursor->format('N');
+        if (in_array($diaSemana, $diasSemana, true)) {
+            $inicioReserva = clone $cursor;
+            $inicioReserva->setTime((int) $horaInicio->format('H'), (int) $horaInicio->format('i'), (int) $horaInicio->format('s'));
+            $finReserva = clone $inicioReserva;
+            $finReserva->modify('+' . $duracion . ' minutes');
+
+            $eventos[] = [
+                'id' => 'reservacion-' . (int) $fila['id'] . '-' . $cursor->format('Ymd'),
+                'event_kind' => 'reservacion_continua',
+                'entity_id' => (int) $fila['id'],
+                'paciente' => $fila['paciente'],
+                'psicologo' => $fila['psicologo'],
+                'psicologo_id' => (int) $fila['psicologo_id'],
+                'psicologo_color' => $fila['psicologo_color'] ?? null,
+                'programado' => $inicioReserva->format(DateTime::ATOM),
+                'termina' => $finReserva->format(DateTime::ATOM),
+                'tiempo' => $duracion,
+                'estatus' => 'Reservación continua',
+                'tipo' => $fila['tipo'],
+                'forma_pago' => null,
+                'costo' => null,
+                'forzada' => !empty($fila['forzada']),
+                'solicitudesReprogramacionPendientes' => 0,
+                'solicitudesCancelacionPendientes' => 0,
+            ];
+        }
+
+        $cursor->modify('+1 day');
+    }
+}
+$stmtReservaciones->close();
 
 $condicionesReunion = [];
 $tiposReunion = '';

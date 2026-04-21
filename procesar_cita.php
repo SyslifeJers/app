@@ -28,6 +28,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
     }
 
     require_once 'conexion.php';
+    require_once __DIR__ . '/Modulos/conflictos_agenda.php';
     require_once __DIR__ . '/Modulos/logger.php';
     require_once __DIR__ . '/Modulos/resumen_pagos.php';
     require_once __DIR__ . '/Modulos/saldo_pacientes.php';
@@ -53,6 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
     $tiempoRaw = $_POST['resumenTiempo'] ?? 60;
     $tiempo = (int) $tiempoRaw;
+    $forzar = isset($_POST['forzar']) && (int) $_POST['forzar'] === 1;
     if ($tiempo <= 0) {
         echo json_encode(['success' => false, 'message' => 'El tiempo de la cita debe ser mayor a 0 minutos.']);
         $conn->close();
@@ -118,16 +120,34 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         exit;
     }
 
+    try {
+        $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, $idPsicologo, $fechaCita, $tiempo, null, $idCliente);
+    } catch (Throwable $e) {
+        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        $conn->close();
+        exit;
+    }
+
+    if ($conflictoAgenda !== null && !$forzar) {
+        http_response_code(409);
+        echo json_encode(array_merge([
+            'success' => false,
+        ], construirPayloadConflictoAgenda($conflictoAgenda)));
+        $conn->close();
+        exit;
+    }
+
     $conn->begin_transaction();
 
     try {
-        $sql = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
+        $forzada = ($conflictoAgenda !== null && $forzar) ? 1 : 0;
+        $sql = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, forzada, Estatus, Tipo, paquete_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)';
         $stmt = $conn->prepare($sql);
         if (!$stmt) {
             throw new Exception('No fue posible preparar la creación de la cita.');
         }
 
-        $stmt->bind_param('iiisdsiisi', $idCliente, $idPsicologo, $idGenerado, $fechaActual, $costo, $fechaCita, $tiempo, $estatus, $tipo, $paqueteId);
+        $stmt->bind_param('iiisdsiiisi', $idCliente, $idPsicologo, $idGenerado, $fechaActual, $costo, $fechaCita, $tiempo, $forzada, $estatus, $tipo, $paqueteId);
         if (!$stmt->execute()) {
             $stmt->close();
             throw new Exception('No fue posible guardar la cita.');
@@ -198,18 +218,19 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             'citas',
             'crear',
             sprintf(
-                'Se creó la cita #%d para el paciente %d con el psicólogo %d programada el %s.',
+                'Se creó la cita #%d para el paciente %d con el psicólogo %d programada el %s%s.',
                 $nuevaCitaId,
                 $idCliente,
                 $idPsicologo,
-                $fechaCita
+                $fechaCita,
+                $forzada === 1 ? ' con conflicto forzado' : ''
             ) . $descripcionPaquete,
             'Cita',
             (string) $nuevaCitaId
         );
 
         $conn->commit();
-        echo json_encode(['success' => true]);
+        echo json_encode(['success' => true, 'forzada' => $forzada === 1]);
     } catch (Exception $e) {
         $conn->rollback();
         echo json_encode(['success' => false, 'message' => $e->getMessage()]);

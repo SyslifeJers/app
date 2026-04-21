@@ -7,6 +7,7 @@ header('Content-Type: application/json; charset=utf-8');
 date_default_timezone_set('America/Mexico_City');
 
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../Modulos/conflictos_agenda.php';
 require_once __DIR__ . '/../Modulos/logger.php';
 require_once __DIR__ . '/../Modulos/resumen_pagos.php';
 
@@ -63,6 +64,13 @@ function validarMetodo(string $metodo): bool
     return in_array($metodo, $permitidos, true);
 }
 
+function responderConflictoAgendaDiagnostico(array $conflicto): void
+{
+    responder(409, array_merge([
+        'success' => false,
+    ], construirPayloadConflictoAgenda($conflicto)));
+}
+
 if ($accion === 'crear') {
     $ninoId = isset($_POST['nino_id']) ? (int) $_POST['nino_id'] : 0;
     $psicologoId = isset($_POST['psicologo_id']) ? (int) $_POST['psicologo_id'] : 0;
@@ -71,6 +79,7 @@ if ($accion === 'crear') {
     $total = isset($_POST['total']) ? (float) $_POST['total'] : 0.0;
     $pagoInicial = isset($_POST['pago_inicial']) ? (float) $_POST['pago_inicial'] : 0.0;
     $metodo = isset($_POST['metodo']) ? trim((string) $_POST['metodo']) : '';
+    $forzar = isset($_POST['forzar']) && (int) $_POST['forzar'] === 1;
 
     if ($ninoId <= 0 || $psicologoId <= 0 || $fechaSql === null || $sesionesTotal <= 0 || !is_finite($total) || $total <= 0) {
         $conn->close();
@@ -154,19 +163,27 @@ if ($accion === 'crear') {
             throw new RuntimeException('Ya existe una cita registrada para este paciente en esa fecha y hora.');
         }
 
+        $tiempoCita = 60;
+        $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, $psicologoId, $fechaSql, $tiempoCita, null, $ninoId);
+        if ($conflictoAgenda !== null && !$forzar) {
+            $conn->rollback();
+            $conn->close();
+            responderConflictoAgendaDiagnostico($conflictoAgenda);
+        }
+
         $estatusCita = 2;
         $tipoCita = 'Diagnostico';
         $costo = 0.0;
         $formaPago = 'Diagnostico';
         $sesionNumero = 1;
-        $tiempoCita = 60;
+        $forzada = ($conflictoAgenda !== null && $forzar) ? 1 : 0;
 
-        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, forzada, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
         $stmtCita = $conn->prepare($sqlCita);
         if (!$stmtCita) {
             throw new RuntimeException('No fue posible preparar la cita.');
         }
-        $stmtCita->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $sesionNumero, $formaPago);
+        $stmtCita->bind_param('iiisdsiiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $forzada, $estatusCita, $tipoCita, $diagnosticoId, $sesionNumero, $formaPago);
         if (!$stmtCita->execute()) {
             $stmtCita->close();
             throw new RuntimeException('No fue posible guardar la cita.');
@@ -204,6 +221,7 @@ if ($accion === 'crear') {
 if ($accion === 'reprogramar') {
     $citaId = isset($_POST['cita_id']) ? (int) $_POST['cita_id'] : 0;
     $fechaSql = isset($_POST['fecha']) ? parseFechaLocal((string) $_POST['fecha']) : null;
+    $forzar = isset($_POST['forzar']) && (int) $_POST['forzar'] === 1;
     if ($citaId <= 0 || $fechaSql === null) {
         $conn->close();
         responder(422, ['success' => false, 'message' => 'Datos invalidos para reprogramar.']);
@@ -211,13 +229,13 @@ if ($accion === 'reprogramar') {
 
     $conn->begin_transaction();
     try {
-        $stmt = $conn->prepare('SELECT diagnostico_id FROM Cita WHERE id = ? FOR UPDATE');
+        $stmt = $conn->prepare('SELECT diagnostico_id, IdUsuario, COALESCE(Tiempo, 60), IdNino FROM Cita WHERE id = ? FOR UPDATE');
         if (!$stmt) {
             throw new RuntimeException('No fue posible preparar la consulta de la cita.');
         }
         $stmt->bind_param('i', $citaId);
         $stmt->execute();
-        $stmt->bind_result($diagnosticoId);
+        $stmt->bind_result($diagnosticoId, $psicologoId, $tiempoCita, $ninoId);
         if (!$stmt->fetch()) {
             $stmt->close();
             throw new RuntimeException('Cita no encontrada.');
@@ -228,12 +246,20 @@ if ($accion === 'reprogramar') {
             throw new RuntimeException('La cita no pertenece a un diagnostico.');
         }
 
+        $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, (int) $psicologoId, $fechaSql, (int) $tiempoCita, $citaId, (int) $ninoId);
+        if ($conflictoAgenda !== null && !$forzar) {
+            $conn->rollback();
+            $conn->close();
+            responderConflictoAgendaDiagnostico($conflictoAgenda);
+        }
+
         $estatusReprogramado = 3;
-        $stmtUpd = $conn->prepare('UPDATE Cita SET Programado = ?, Estatus = ? WHERE id = ?');
+        $forzada = ($conflictoAgenda !== null && $forzar) ? 1 : 0;
+        $stmtUpd = $conn->prepare('UPDATE Cita SET Programado = ?, Estatus = ?, forzada = ? WHERE id = ?');
         if (!$stmtUpd) {
             throw new RuntimeException('No fue posible preparar la reprogramacion.');
         }
-        $stmtUpd->bind_param('sii', $fechaSql, $estatusReprogramado, $citaId);
+        $stmtUpd->bind_param('siii', $fechaSql, $estatusReprogramado, $forzada, $citaId);
         if (!$stmtUpd->execute()) {
             $stmtUpd->close();
             throw new RuntimeException('No fue posible reprogramar la cita.');
@@ -367,6 +393,7 @@ if ($accion === 'pagar') {
 if ($accion === 'agendar') {
     $diagnosticoId = isset($_POST['diagnostico_id']) ? (int) $_POST['diagnostico_id'] : 0;
     $fechaSql = isset($_POST['fecha']) ? parseFechaLocal((string) $_POST['fecha']) : null;
+    $forzar = isset($_POST['forzar']) && (int) $_POST['forzar'] === 1;
     if ($diagnosticoId <= 0 || $fechaSql === null) {
         $conn->close();
         responder(422, ['success' => false, 'message' => 'Datos invalidos para agendar.']);
@@ -427,18 +454,26 @@ if ($accion === 'agendar') {
             throw new RuntimeException('Ya existe una cita registrada para este paciente en esa fecha y hora.');
         }
 
+        $tiempoCita = 60;
+        $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, $psicologoId, $fechaSql, $tiempoCita, null, $ninoId);
+        if ($conflictoAgenda !== null && !$forzar) {
+            $conn->rollback();
+            $conn->close();
+            responderConflictoAgendaDiagnostico($conflictoAgenda);
+        }
+
         $estatusCita = 2;
         $tipoCita = 'Diagnostico';
         $costo = 0.0;
         $formaPago = 'Diagnostico';
-        $tiempoCita = 60;
+        $forzada = ($conflictoAgenda !== null && $forzar) ? 1 : 0;
 
-        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+        $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, forzada, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
         $stmtCita = $conn->prepare($sqlCita);
         if (!$stmtCita) {
             throw new RuntimeException('No fue posible preparar la cita.');
         }
-        $stmtCita->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
+        $stmtCita->bind_param('iiisdsiiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $fechaSql, $tiempoCita, $forzada, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
         if (!$stmtCita->execute()) {
             $stmtCita->close();
             throw new RuntimeException('No fue posible guardar la cita.');
@@ -471,6 +506,7 @@ if ($accion === 'finalizar') {
     $pagoMonto = isset($_POST['pago_monto']) ? (float) $_POST['pago_monto'] : 0.0;
     $pagoMetodo = isset($_POST['pago_metodo']) ? trim((string) $_POST['pago_metodo']) : '';
     $proximaFechaSql = isset($_POST['proxima_fecha']) ? parseFechaLocal((string) $_POST['proxima_fecha']) : null;
+    $forzarProxima = isset($_POST['forzar_proxima']) && (int) $_POST['forzar_proxima'] === 1;
 
     if ($citaId <= 0) {
         $conn->close();
@@ -622,18 +658,26 @@ if ($accion === 'finalizar') {
                 throw new RuntimeException('Ya existe una cita registrada para este paciente en esa fecha y hora.');
             }
 
+            $tiempoCita = 60;
+            $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, (int) $psicologoId, $proximaFechaSql, $tiempoCita, null, (int) $ninoId);
+            if ($conflictoAgenda !== null && !$forzarProxima) {
+                $conn->rollback();
+                $conn->close();
+                responderConflictoAgendaDiagnostico($conflictoAgenda);
+            }
+
             $estatusCita = 2;
             $tipoCita = 'Diagnostico';
             $costo = 0.0;
             $formaPago = 'Diagnostico';
-            $tiempoCita = 60;
+            $forzada = ($conflictoAgenda !== null && $forzarProxima) ? 1 : 0;
 
-            $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
+            $sqlCita = 'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, forzada, Estatus, Tipo, paquete_id, diagnostico_id, diagnostico_sesion, FormaPago) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)';
             $stmtNueva = $conn->prepare($sqlCita);
             if (!$stmtNueva) {
                 throw new RuntimeException('No fue posible preparar la proxima cita.');
             }
-            $stmtNueva->bind_param('iiisdsiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $proximaFechaSql, $tiempoCita, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
+            $stmtNueva->bind_param('iiisdsiiisiis', $ninoId, $psicologoId, $usuarioId, $fechaActual, $costo, $proximaFechaSql, $tiempoCita, $forzada, $estatusCita, $tipoCita, $diagnosticoId, $siguienteSesion, $formaPago);
             if (!$stmtNueva->execute()) {
                 $stmtNueva->close();
                 throw new RuntimeException('No fue posible guardar la proxima cita.');

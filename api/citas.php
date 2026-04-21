@@ -13,6 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../conexion.php';
+require_once __DIR__ . '/../Modulos/conflictos_agenda.php';
 require_once __DIR__ . '/../Modulos/logger.php';
 
 /**
@@ -154,6 +155,12 @@ function prepararDatosCitaParaCrear(array $data): array
     }
 
     $estatus = isset($data['estatus']) ? (int) $data['estatus'] : 2;
+    $tiempo = isset($data['tiempo']) ? (int) $data['tiempo'] : 60;
+    $forzar = !empty($data['forzar']);
+
+    if ($tiempo <= 0) {
+        jsonResponse(400, ['error' => 'El tiempo debe ser un entero mayor a cero.']);
+    }
 
     return [
         'paciente_id' => $pacienteId,
@@ -163,6 +170,8 @@ function prepararDatosCitaParaCrear(array $data): array
         'costo' => (float) $costo,
         'estatus' => $estatus,
         'tipo' => $tipo,
+        'tiempo' => $tiempo,
+        'forzar' => $forzar,
     ];
 }
 
@@ -176,13 +185,16 @@ function prepararActualizacionCita(array $data, array $actual, int $id): array
     }
 
     $usuarioLog = isset($data['usuario_id']) ? (int) $data['usuario_id'] : null;
+    $forzar = !empty($data['forzar']);
 
     $campos = [];
     $tipos = '';
     $valores = [];
 
     $pacienteId = (int) $actual['paciente_id'];
+    $psicologoId = (int) $actual['psicologo_id'];
     $programado = (string) $actual['programado'];
+    $tiempo = isset($actual['tiempo']) ? (int) $actual['tiempo'] : 60;
 
     if (array_key_exists('paciente_id', $data)) {
         $pacienteIdValidado = filter_var($data['paciente_id'], FILTER_VALIDATE_INT);
@@ -196,10 +208,11 @@ function prepararActualizacionCita(array $data, array $actual, int $id): array
     }
 
     if (array_key_exists('psicologo_id', $data)) {
-        $psicologoId = filter_var($data['psicologo_id'], FILTER_VALIDATE_INT);
-        if ($psicologoId === false || $psicologoId <= 0) {
+        $psicologoIdValidado = filter_var($data['psicologo_id'], FILTER_VALIDATE_INT);
+        if ($psicologoIdValidado === false || $psicologoIdValidado <= 0) {
             jsonResponse(400, ['error' => 'El psicologo_id debe ser un número entero positivo.']);
         }
+        $psicologoId = $psicologoIdValidado;
         $campos[] = 'IdUsuario = ?';
         $tipos .= 'i';
         $valores[] = $psicologoId;
@@ -248,12 +261,16 @@ function prepararActualizacionCita(array $data, array $actual, int $id): array
 
     return [
         'usuario_log' => $usuarioLog,
+        'forzar' => $forzar,
         'campos' => $campos,
         'tipos' => $tipos,
         'valores' => $valores,
         'paciente_id' => $pacienteId,
+        'psicologo_id' => $psicologoId,
         'programado' => $programado,
+        'tiempo' => $tiempo,
         'paciente_original' => (int) $actual['paciente_id'],
+        'psicologo_original' => (int) $actual['psicologo_id'],
         'programado_original' => (string) $actual['programado'],
     ];
 }
@@ -266,6 +283,7 @@ function normalizarFecha(string $valor, string $campo): string
     $valor = trim($valor);
     if ($valor === '') {
         jsonResponse(400, ['error' => "El campo {$campo} no puede estar vacío."]);
+        throw new RuntimeException('Fecha vacía.');
     }
 
     $formatos = ['Y-m-d H:i:s', DateTime::ATOM];
@@ -277,6 +295,7 @@ function normalizarFecha(string $valor, string $campo): string
     }
 
     jsonResponse(400, ['error' => "El campo {$campo} debe tener el formato 'Y-m-d H:i:s'."]);
+    throw new RuntimeException('Fecha inválida.');
 }
 
 /**
@@ -285,7 +304,8 @@ function normalizarFecha(string $valor, string $campo): string
 function aplicarActualizacionPreparada(mysqli $conn, int $id, array $datos, bool $rollbackEnError = false): array
 {
     $requiereValidacion = $datos['programado'] !== $datos['programado_original']
-        || $datos['paciente_id'] !== $datos['paciente_original'];
+        || $datos['paciente_id'] !== $datos['paciente_original']
+        || $datos['psicologo_id'] !== $datos['psicologo_original'];
 
     if ($requiereValidacion) {
         $check = $conn->prepare('SELECT COUNT(*) FROM Cita WHERE IdNino = ? AND Programado = ? AND id <> ?');
@@ -307,6 +327,29 @@ function aplicarActualizacionPreparada(mysqli $conn, int $id, array $datos, bool
             }
             jsonResponse(409, ['error' => 'Ya existe otra cita para este paciente en la fecha y hora indicadas.']);
         }
+
+        try {
+            $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, $datos['psicologo_id'], $datos['programado'], $datos['tiempo'], $id, $datos['paciente_id']);
+        } catch (Throwable $e) {
+            if ($rollbackEnError) {
+                $conn->rollback();
+            }
+            jsonResponse(500, ['error' => $e->getMessage()]);
+        }
+
+        if ($conflictoAgenda !== null && !$datos['forzar']) {
+            if ($rollbackEnError) {
+                $conn->rollback();
+            }
+            jsonResponse(409, array_merge([
+                'error' => 'La psicóloga seleccionada ya tiene una cita en ese horario.',
+            ], construirPayloadConflictoAgenda($conflictoAgenda)));
+        }
+
+        $camposForzada = 'forzada = ?';
+        $datos['campos'][] = $camposForzada;
+        $datos['tipos'] .= 'i';
+        $datos['valores'][] = ($conflictoAgenda !== null && $datos['forzar']) ? 1 : 0;
     }
 
     $sql = 'UPDATE Cita SET ' . implode(', ', $datos['campos']) . ' WHERE id = ?';
@@ -359,6 +402,8 @@ function obtenerCitaPorId(mysqli $conn, int $id): ?array
                 fecha,
                 costo,
                 Programado  AS programado,
+                COALESCE(Tiempo, 60) AS tiempo,
+                COALESCE(forzada, 0) AS forzada,
                 Estatus     AS estatus,
                 Tipo        AS tipo
          FROM Cita
@@ -380,6 +425,8 @@ function obtenerCitaPorId(mysqli $conn, int $id): ?array
     }
 
     $cita['costo'] = isset($cita['costo']) ? (float) $cita['costo'] : null;
+    $cita['tiempo'] = isset($cita['tiempo']) ? (int) $cita['tiempo'] : 60;
+    $cita['forzada'] = !empty($cita['forzada']);
 
     return $cita;
 }
@@ -413,6 +460,8 @@ switch ($method) {
                     fecha,
                     costo,
                     Programado  AS programado,
+                    COALESCE(Tiempo, 60) AS tiempo,
+                    COALESCE(forzada, 0) AS forzada,
                     Estatus     AS estatus,
                     Tipo        AS tipo
              FROM Cita
@@ -426,6 +475,8 @@ switch ($method) {
         $citas = [];
         while ($fila = $resultado->fetch_assoc()) {
             $fila['costo'] = isset($fila['costo']) ? (float) $fila['costo'] : null;
+            $fila['tiempo'] = isset($fila['tiempo']) ? (int) $fila['tiempo'] : 60;
+            $fila['forzada'] = !empty($fila['forzada']);
             $citas[] = $fila;
         }
 
@@ -474,11 +525,26 @@ switch ($method) {
                 jsonResponse(409, ['error' => 'Ya existe una cita para este paciente en la fecha y hora indicadas.']);
             }
 
+            try {
+                $conflictoAgenda = obtenerConflictoAgendaPsicologo($conn, $cita['psicologo_id'], $cita['programado'], $cita['tiempo'], null, $cita['paciente_id']);
+            } catch (Throwable $e) {
+                $conn->rollback();
+                jsonResponse(500, ['error' => $e->getMessage()]);
+            }
+
+            if ($conflictoAgenda !== null && !$cita['forzar']) {
+                $conn->rollback();
+                jsonResponse(409, array_merge([
+                    'error' => 'La psicóloga seleccionada ya tiene una cita en ese horario.',
+                ], construirPayloadConflictoAgenda($conflictoAgenda)));
+            }
+
             $fechaRegistro = (new DateTime('now', new DateTimeZone('America/Mexico_City')))->format('Y-m-d H:i:s');
+            $forzada = ($conflictoAgenda !== null && $cita['forzar']) ? 1 : 0;
 
             $stmt = $conn->prepare(
-                'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Estatus, Tipo) '
-                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO Cita (IdNino, IdUsuario, idGenerado, fecha, costo, Programado, Tiempo, forzada, Estatus, Tipo) '
+                . 'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
 
             if ($stmt === false) {
@@ -487,13 +553,15 @@ switch ($method) {
             }
 
             $stmt->bind_param(
-                'iiisdsis',
+                'iiisdsiiis',
                 $cita['paciente_id'],
                 $cita['psicologo_id'],
                 $cita['creado_por'],
                 $fechaRegistro,
                 $cita['costo'],
                 $cita['programado'],
+                $cita['tiempo'],
+                $forzada,
                 $cita['estatus'],
                 $cita['tipo']
             );
@@ -512,7 +580,7 @@ switch ($method) {
                 $cita['creado_por'],
                 'citas',
                 'crear_api',
-                sprintf('Se creó la cita #%d para el paciente %d programada el %s.', $nuevoId, $cita['paciente_id'], $cita['programado']),
+                sprintf('Se creó la cita #%d para el paciente %d programada el %s%s.', $nuevoId, $cita['paciente_id'], $cita['programado'], $forzada === 1 ? ' con conflicto forzado' : ''),
                 'Cita',
                 (string) $nuevoId
             );
