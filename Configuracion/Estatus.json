@@ -1,0 +1,14 @@
+[
+{"type":"header","version":"5.2.2","comment":"Export to JSON plugin for PHPMyAdmin"},
+{"type":"database","name":"u529445062_cenere"},
+{"type":"table","name":"Estatus","database":"u529445062_cenere","data":
+[
+{"id":"1","name":"Cancelada","activo":"1"},
+{"id":"2","name":"Creada","activo":"1"},
+{"id":"3","name":"Reprogramado","activo":"1"},
+{"id":"4","name":"Finalizada","activo":"1"},
+{"id":"5","name":"Pagos programados","activo":"1"},
+{"id":"6","name":"Completado\r\n","activo":"1"}
+]
+}
+]

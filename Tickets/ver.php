@@ -11,6 +11,8 @@ if (!isset($_SESSION['user'], $_SESSION['token'])) {
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/../Modulos/logger.php';
 
+date_default_timezone_set('America/Mexico_City');
+
 $connAuth = conectar();
 if (!($connAuth instanceof mysqli)) {
     throw new RuntimeException('No se pudo conectar a la base de datos.');
@@ -111,11 +113,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $connAuth->begin_transaction();
         try {
             if ($mensaje !== '') {
-                $stmtMsg = $connAuth->prepare('INSERT INTO soporte_ticket_mensajes (ticket_id, autor_id, mensaje) VALUES (?, ?, ?)');
+                $fechaActual = date('Y-m-d H:i:s');
+                $stmtMsg = $connAuth->prepare('INSERT INTO soporte_ticket_mensajes (ticket_id, autor_id, mensaje, created_at) VALUES (?, ?, ?, ?)');
                 if (!($stmtMsg instanceof mysqli_stmt)) {
                     throw new RuntimeException('No se pudo preparar el mensaje.');
                 }
-                $stmtMsg->bind_param('iis', $ticketIdInt, $idUsuario, $mensaje);
+                $stmtMsg->bind_param('iiss', $ticketIdInt, $idUsuario, $mensaje, $fechaActual);
                 if (!$stmtMsg->execute()) {
                     throw new RuntimeException('No se pudo guardar el mensaje.');
                 }
@@ -231,6 +234,19 @@ function estadoClase(string $estado): string
     }
 }
 
+function fechaMxTicket(?string $fecha): string
+{
+    if ($fecha === null || trim($fecha) === '') {
+        return '';
+    }
+
+    try {
+        return (new DateTime($fecha, new DateTimeZone('America/Mexico_City')))->format('d/m/Y H:i');
+    } catch (Throwable $e) {
+        return $fecha;
+    }
+}
+
 $creador = trim((string) ($ticket['creador_nombre'] ?? ''));
 if ($creador === '') {
     $creador = (string) ($ticket['creador_usuario'] ?? '');
@@ -283,7 +299,7 @@ if ($asignado === '') {
                         <dd class="col-sm-7"><?php echo htmlspecialchars($creador, ENT_QUOTES, 'UTF-8'); ?></dd>
 
                         <dt class="col-sm-5">Fecha</dt>
-                        <dd class="col-sm-7"><?php echo htmlspecialchars((string) ($ticket['created_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></dd>
+                        <dd class="col-sm-7"><?php echo htmlspecialchars(fechaMxTicket($ticket['created_at'] ?? null), ENT_QUOTES, 'UTF-8'); ?></dd>
 
                         <?php if ($esAdminTickets): ?>
                             <dt class="col-sm-5">Asignado a</dt>
@@ -347,7 +363,7 @@ if ($asignado === '') {
                                 <div class="border rounded p-3">
                                     <div class="d-flex justify-content-between gap-2 mb-2">
                                         <div class="fw-semibold"><?php echo htmlspecialchars($autor, ENT_QUOTES, 'UTF-8'); ?></div>
-                                        <div class="text-muted small"><?php echo htmlspecialchars((string) ($m['created_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></div>
+                                        <div class="text-muted small"><?php echo htmlspecialchars(fechaMxTicket($m['created_at'] ?? null), ENT_QUOTES, 'UTF-8'); ?></div>
                                     </div>
                                     <div style="white-space: pre-wrap;">
                                         <?php echo htmlspecialchars((string) ($m['mensaje'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>

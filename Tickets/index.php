@@ -1,6 +1,8 @@
 <?php
 include '../Modulos/head.php';
 
+date_default_timezone_set('America/Mexico_City');
+
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $esAdminTickets = ($rolUsuario === 3);
 $idUsuario = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
@@ -57,6 +59,19 @@ function badgeEstadoTicket(string $estado): array
             return [($estado !== '' ? $estado : 'N/D'), 'bg-secondary'];
     }
 }
+
+function fechaMxTicket(?string $fecha): string
+{
+    if ($fecha === null || trim($fecha) === '') {
+        return '';
+    }
+
+    try {
+        return (new DateTime($fecha, new DateTimeZone('America/Mexico_City')))->format('d/m/Y H:i');
+    } catch (Throwable $e) {
+        return $fecha;
+    }
+}
 ?>
 
 <div class="container mt-4">
@@ -82,12 +97,10 @@ function badgeEstadoTicket(string $estado): array
                     </p>
                 </div>
                 <div class="d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-2">
-                    <?php if (!$esAdminTickets): ?>
-                        <a href="/Tickets/crear.php" class="btn btn-primary d-flex align-items-center justify-content-center gap-2">
-                            <i class="fas fa-plus"></i>
-                            <span>Nuevo ticket</span>
-                        </a>
-                    <?php endif; ?>
+                    <a href="/Tickets/crear.php" class="btn btn-primary d-flex align-items-center justify-content-center gap-2">
+                        <i class="fas fa-plus"></i>
+                        <span>Subir ticket</span>
+                    </a>
                 </div>
             </div>
         </div>
@@ -127,7 +140,7 @@ function badgeEstadoTicket(string $estado): array
                                 <?php if ($esAdminTickets): ?>
                                     <td><?php echo htmlspecialchars($creador, ENT_QUOTES, 'UTF-8'); ?></td>
                                 <?php endif; ?>
-                                <td><?php echo htmlspecialchars((string) ($t['created_at'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                <td><?php echo htmlspecialchars(fechaMxTicket($t['created_at'] ?? null), ENT_QUOTES, 'UTF-8'); ?></td>
                                 <td>
                                     <a class="btn btn-outline-primary btn-sm" href="/Tickets/ver.php?id=<?php echo (int) ($t['id'] ?? 0); ?>">
                                         Ver

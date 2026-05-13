@@ -252,6 +252,12 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
       </li>
       <?php } ?>
 
+      <?php if (!$esPracticante && in_array($rol, [1, 2, 3, 5], true)) { ?>
+      <li class="nav-item ">
+        <a class="nav-link" href="/PagosDemo/index.php"><i class="fas fa-cash-register"></i>Pagos separados <span class="sr-only"></span></a>
+      </li>
+      <?php } ?>
+
 	 
             </ul>
           </div>

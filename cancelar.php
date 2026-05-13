@@ -23,6 +23,26 @@ $ROL_COORDINADOR = 5;
 $ROL_PRACTICANTE = 6;
 $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower((string) $_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
 
+function obtenerIdEstatus(mysqli $conn, string $nombre, int $valorPredeterminado): int
+{
+    $estatusId = null;
+    $nombreNormalizado = strtolower(trim($nombre));
+
+    $stmt = $conn->prepare('SELECT id FROM Estatus WHERE TRIM(LOWER(name)) = ? LIMIT 1');
+    if ($stmt) {
+        $stmt->bind_param('s', $nombreNormalizado);
+        if ($stmt->execute()) {
+            $stmt->bind_result($estatusEncontrado);
+            if ($stmt->fetch()) {
+                $estatusId = (int) $estatusEncontrado;
+            }
+        }
+        $stmt->close();
+    }
+
+    return $estatusId ?? $valorPredeterminado;
+}
+
 function finalizarRespuesta($success, $mensaje, $tipo = 'success', array $extra = [])
 {
     global $isAjax;
@@ -71,8 +91,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $montoPago = isset($_POST['montoPago']) ? (float) $_POST['montoPago'] : 0.0;
     $imprimirTicket = isset($_POST['imprimirTicket']) ? ((int) $_POST['imprimirTicket'] === 1) : false;
 
+    $estatusCancelada = obtenerIdEstatus($conn, 'Cancelada', 1);
+    $estatusFinalizada = obtenerIdEstatus($conn, 'Finalizada', 4);
+    $esCancelacion = $estatus === $estatusCancelada;
+    $esRegistroPago = $estatus === $estatusFinalizada;
+
     if ($citaId <= 0 || $estatus <= 0) {
         finalizarRespuesta(false, 'La cita seleccionada no es válida.', 'danger');
+    }
+
+    if ($esRegistroPago) {
+        $conn->begin_transaction();
     }
 
     $fechaProgramadaActual = null;
@@ -81,15 +110,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $psicologoIdCita = null;
     $pacienteNombreCita = '';
     $psicologoNombreCita = '';
-    if ($stmtDatosCita = $conn->prepare('SELECT ci.Programado, ci.IdNino, ci.costo, ci.IdUsuario, n.name, u.name FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ?')) {
+    $estatusActualCita = null;
+    $formaPagoActual = null;
+    $consultaDatosCita = $esRegistroPago
+        ? 'SELECT ci.Programado, ci.IdNino, ci.costo, ci.IdUsuario, n.name, u.name, ci.Estatus, ci.FormaPago FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ? FOR UPDATE'
+        : 'SELECT ci.Programado, ci.IdNino, ci.costo, ci.IdUsuario, n.name, u.name, ci.Estatus, ci.FormaPago FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ?';
+    if ($stmtDatosCita = $conn->prepare($consultaDatosCita)) {
         $stmtDatosCita->bind_param('i', $citaId);
         $stmtDatosCita->execute();
-        $stmtDatosCita->bind_result($fechaProgramadaActual, $pacienteId, $costoCita, $psicologoIdCita, $pacienteNombreCita, $psicologoNombreCita);
+        $stmtDatosCita->bind_result($fechaProgramadaActual, $pacienteId, $costoCita, $psicologoIdCita, $pacienteNombreCita, $psicologoNombreCita, $estatusActualCita, $formaPagoActual);
         $stmtDatosCita->fetch();
         $stmtDatosCita->close();
     }
 
     if (!$fechaProgramadaActual) {
+        if ($esRegistroPago) {
+            $conn->rollback();
+        }
         finalizarRespuesta(false, 'No fue posible localizar la cita seleccionada.', 'danger');
     }
 
@@ -107,7 +144,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $isRecepcion = $rolUsuario === $ROL_RECEPCION;
     $shouldRegistrarAutoCancelacion = false;
-    if ($tablaSolicitudesDisponible && $isRecepcion && $estatus === 1 && $idUsuario !== null) {
+    if ($tablaSolicitudesDisponible && $isRecepcion && $esCancelacion && $idUsuario !== null) {
         $totalPendientesRecepcion = 0;
         if ($stmtPendientesRecepcion = $conn->prepare("SELECT COUNT(*) FROM SolicitudReprogramacion WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
             $stmtPendientesRecepcion->bind_param('i', $citaId);
@@ -119,15 +156,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $shouldRegistrarAutoCancelacion = $totalPendientesRecepcion === 0;
     }
 
-    if ($estatus === 4) {
+    if ($esRegistroPago) {
         $usaTransaccion = true;
-        $conn->begin_transaction();
     }
 
     try {
-        if ($estatus === 4) {
+        if ($esRegistroPago) {
             if (!$pacienteId) {
                 throw new Exception('No fue posible identificar al paciente de la cita.');
+            }
+
+            $estatusActualCita = (int) $estatusActualCita;
+            if ($estatusActualCita === $estatusFinalizada) {
+                throw new Exception('El pago de la cita ya fue registrado previamente.');
+            }
+
+            if ($estatusActualCita === $estatusCancelada) {
+                throw new Exception('No se puede registrar el pago de una cita cancelada.');
+            }
+
+            if ($formaPagoActual !== null && trim((string) $formaPagoActual) !== '') {
+                throw new Exception('La cita ya tiene un pago registrado.');
             }
 
             $pagosProcesados = $pagosRegistrados;
@@ -209,14 +258,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $detallesSaldo[] = sprintf('Quedó un saldo pendiente de %s para próximas citas.', number_format($faltante, 2));
             }
-
-            $stmtEliminarPagos = $conn->prepare('DELETE FROM CitaPagos WHERE cita_id = ?');
-            if (!$stmtEliminarPagos) {
-                throw new Exception('No fue posible preparar la limpieza de los pagos registrados previamente.');
-            }
-            $stmtEliminarPagos->bind_param('i', $citaId);
-            $stmtEliminarPagos->execute();
-            $stmtEliminarPagos->close();
 
             $insertQuery = $idUsuario !== null
                 ? 'INSERT INTO CitaPagos (cita_id, metodo, monto, registrado_por) VALUES (?, ?, ?, ?)'
@@ -315,10 +356,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $accionLog = 'actualizar_estatus';
     $descripcionLog = sprintf('La cita #%d cambió su estatus a %d.', $citaId, $estatus);
 
-    if ($estatus === 1) {
+    if ($esCancelacion) {
         $accionLog = 'cancelar';
         $descripcionLog = sprintf('La cita #%d fue cancelada.', $citaId);
-    } elseif ($estatus === 4) {
+    } elseif ($esRegistroPago) {
         $accionLog = 'registrar_pago';
         $descripcionLog = sprintf('Se registró el pago de la cita #%d.', $citaId);
     }
@@ -365,7 +406,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($estatus === 1) {
+    if ($esCancelacion) {
         if ($tablaSolicitudesDisponible) {
             $comentarioCancelacion = 'Solicitud cerrada automáticamente por cancelación de la cita.';
             $stmtCancelar = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'rechazada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
@@ -396,9 +437,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    if ($estatus === 1) {
+    if ($esCancelacion) {
         finalizarRespuesta(true, 'Cita cancelada correctamente.', 'success');
-    } elseif ($estatus === 4) {
+    } elseif ($esRegistroPago) {
         $mensajePago = 'Pago registrado correctamente.';
         if (!empty($detallesPagos)) {
             $mensajePago .= ' Pagos: ' . implode('; ', $detallesPagos) . '.';

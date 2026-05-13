@@ -11,6 +11,8 @@ if (!isset($_SESSION['user'], $_SESSION['token'])) {
 require_once __DIR__ . '/../conexion.php';
 require_once __DIR__ . '/../Modulos/logger.php';
 
+date_default_timezone_set('America/Mexico_City');
+
 $connAuth = conectar();
 if (!($connAuth instanceof mysqli)) {
     throw new RuntimeException('No se pudo conectar a la base de datos.');
@@ -35,12 +37,6 @@ if (!isset($dbToken) || $_SESSION['token'] !== $dbToken) {
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $idUsuario = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
 
-if ($rolUsuario === 3) {
-    $_SESSION['tickets_flash'] = ['tipo' => 'warning', 'texto' => 'Los administradores no dan de alta tickets.'];
-    header('Location: /Tickets/index.php');
-    exit;
-}
-
 $errores = [];
 
 $problemaGeneral = '';
@@ -49,11 +45,9 @@ $areaProblema = '';
 $ninoId = '';
 
 $opcionesProblema = [
-    'Citas',
-    'Clientes',
-    'Cobranza',
-    'Reportes',
-    'Sistema',
+    'Mantenimiento de equipo',
+    'Apoyo en aclaracion',
+    'Apoyo en sistema',
     'Otro',
 ];
 
@@ -78,16 +72,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($descripcion === '') {
         $errores[] = 'Ingresa una descripcion.';
     }
-    if ($areaProblema === '' && $ninoIdInt === null) {
-        $errores[] = 'Indica el area del problema o selecciona un nino.';
-    }
-
     if (empty($errores)) {
-        $stmt = $connAuth->prepare("INSERT INTO soporte_tickets (creado_por, problema_general, descripcion, area_problema, nino_id, estado) VALUES (?, ?, ?, ?, ?, 'abierto')");
+        $fechaActual = date('Y-m-d H:i:s');
+        $stmt = $connAuth->prepare("INSERT INTO soporte_tickets (creado_por, problema_general, descripcion, area_problema, nino_id, estado, created_at) VALUES (?, ?, ?, ?, ?, 'cerrado', ?)");
         if (!($stmt instanceof mysqli_stmt)) {
             $errores[] = 'No se pudo preparar el alta del ticket.';
         } else {
-            $stmt->bind_param('isssi', $idUsuario, $problemaGeneral, $descripcion, $areaProblema, $ninoIdInt);
+            $stmt->bind_param('isssis', $idUsuario, $problemaGeneral, $descripcion, $areaProblema, $ninoIdInt, $fechaActual);
             if (!$stmt->execute()) {
                 $errores[] = 'No se pudo guardar el ticket. Intentalo de nuevo.';
             } else {
@@ -174,18 +165,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $idUsuario,
                     'tickets',
                     'crear',
-                    sprintf('Se creo el ticket de soporte #%d (%s).', $ticketId, $problemaGeneral),
+                    sprintf('Se subio y cerro automaticamente el ticket de apoyo #%d (%s).', $ticketId, $problemaGeneral),
                     'soporte_tickets',
                     (string) $ticketId
                 );
 
-                $textoFlash = 'Ticket creado correctamente.';
+                $textoFlash = 'Ticket subido correctamente y cerrado automaticamente.';
                 if (!empty($erroresAdjuntos)) {
                     $textoFlash .= ' (Algunas capturas no se pudieron guardar)';
                 }
                 $_SESSION['tickets_flash'] = ['tipo' => 'success', 'texto' => $textoFlash];
 
-                header('Location: /Tickets/ver.php?id=' . $ticketId);
+                header('Location: /Tickets/index.php');
                 exit;
             }
             $stmt->close();
@@ -197,15 +188,6 @@ $connAuth->close();
 
 include '../Modulos/head.php';
 
-$ninos = [];
-if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY name ASC')) {
-    $stmtN->execute();
-    $resN = $stmtN->get_result();
-    while ($row = $resN->fetch_assoc()) {
-        $ninos[] = $row;
-    }
-    $stmtN->close();
-}
 ?>
 
 <div class="container mt-4">
@@ -217,9 +199,9 @@ if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY
                         <span class="badge bg-primary-subtle text-primary-emphasis rounded-circle p-2">
                             <i class="fas fa-plus"></i>
                         </span>
-                        Nuevo ticket
+                        Subir ticket de apoyo
                     </h2>
-                    <p class="text-muted mb-0 small">Describe el problema para que el administrador pueda dar seguimiento.</p>
+                    <p class="text-muted mb-0 small">Registra una solicitud corta con imagen si aplica. Se cerrara automaticamente al enviarla.</p>
                 </div>
                 <div class="d-flex gap-2">
                     <a href="/Tickets/index.php" class="btn btn-outline-secondary">Volver</a>
@@ -234,10 +216,10 @@ if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY
                 </div>
             <?php endif; ?>
 
-            <form method="post" enctype="multipart/form-data">
+            <form method="post" enctype="multipart/form-data" id="ticketForm">
                 <div class="row g-3">
                     <div class="col-12 col-lg-6">
-                        <label for="problema_general" class="form-label">Problema general</label>
+                        <label for="problema_general" class="form-label">Tipo de apoyo</label>
                         <select id="problema_general" name="problema_general" class="form-select" required>
                             <option value="">Selecciona...</option>
                             <?php foreach ($opcionesProblema as $op): ?>
@@ -249,26 +231,13 @@ if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY
                     </div>
 
                     <div class="col-12 col-lg-6">
-                        <label for="area_problema" class="form-label">Area del problema (opcional si eliges nino)</label>
-                        <input type="text" class="form-control" id="area_problema" name="area_problema" value="<?php echo htmlspecialchars($areaProblema, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Ej. Recepcion, Cobranza, Calendario">
+                        <label for="area_problema" class="form-label">Area o equipo (opcional)</label>
+                        <input type="text" class="form-control" id="area_problema" name="area_problema" value="<?php echo htmlspecialchars($areaProblema, ENT_QUOTES, 'UTF-8'); ?>" placeholder="Ej. Recepcion, impresora, computadora">
                     </div>
 
                     <div class="col-12">
-                        <label for="nino_id" class="form-label">Nino con el problema (opcional si indicas area)</label>
-                        <select id="nino_id" name="nino_id" class="form-select">
-                            <option value="">Sin nino</option>
-                            <?php foreach ($ninos as $n): ?>
-                                <?php $id = (string) ($n['id'] ?? ''); ?>
-                                <option value="<?php echo htmlspecialchars($id, ENT_QUOTES, 'UTF-8'); ?>" <?php echo ($ninoId !== '' && $ninoId === $id) ? 'selected' : ''; ?>>
-                                    <?php echo htmlspecialchars((string) ($n['name'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="col-12">
-                        <label for="descripcion" class="form-label">Descripcion</label>
-                        <textarea class="form-control" id="descripcion" name="descripcion" rows="5" required placeholder="Que paso, en que pantalla, y como reproducirlo."><?php echo htmlspecialchars($descripcion, ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <label for="descripcion" class="form-label">Comentario corto</label>
+                        <textarea class="form-control" id="descripcion" name="descripcion" rows="3" required placeholder="Ej. Mantenimiento de impresora o apoyo con una aclaracion."><?php echo htmlspecialchars($descripcion, ENT_QUOTES, 'UTF-8'); ?></textarea>
                     </div>
 
                     <div class="col-12">
@@ -277,7 +246,7 @@ if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY
                     </div>
 
                     <div class="col-12 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary">Crear ticket</button>
+                        <button type="submit" class="btn btn-primary" id="submitTicketBtn">Subir y cerrar ticket</button>
                         <a href="/Tickets/index.php" class="btn btn-outline-secondary">Cancelar</a>
                     </div>
                 </div>
@@ -287,3 +256,23 @@ if ($stmtN = $conn->prepare('SELECT id, name FROM nino WHERE activo = 1 ORDER BY
 </div>
 
 <?php include '../Modulos/footer.php'; ?>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function () {
+        var form = document.getElementById('ticketForm');
+        var button = document.getElementById('submitTicketBtn');
+
+        if (!form || !button) {
+            return;
+        }
+
+        form.addEventListener('submit', function () {
+            if (button.disabled) {
+                return false;
+            }
+
+            button.disabled = true;
+            button.textContent = 'Subiendo...';
+        });
+    });
+</script>

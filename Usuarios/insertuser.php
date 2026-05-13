@@ -43,7 +43,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     // Ejecutar la consulta
     if ($stmt->execute()) {
-        header("Location:index.php");
+        header("Location: index.php");
 		die();
     } else {
         echo "Error: " . $stmt->error;

@@ -121,7 +121,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                     echo '<td class="fw-semibold">#' . htmlspecialchars($row['id']) . '</td>';
                     echo '<td>';
                     echo '<div class="d-flex flex-column">';
-                    echo '<span class="fw-semibold">' . htmlspecialchars($row['name']) . '</span>';
+                    echo '<a class="fw-semibold text-decoration-none" href="resumen.php?id=' . (int) $row['id'] . '">' . htmlspecialchars($row['name']) . '</a>';
                     echo '<span class="text-muted small">Tutor ID: ' . htmlspecialchars($row['id']) . '</span>';
                     echo '<span class="text-muted small">Fecha de Registro: ' . $fechaRegistro . '</span>';
                     echo '</div>';
@@ -194,6 +194,7 @@ $ocultarNinosInactivos = ($rolUsuario === 1);
                         }
                     }
 
+                    echo '<a class="btn btn-outline-secondary btn-sm" href="resumen.php?id=' . (int) $row['id'] . '"><i class="fas fa-list-alt me-1"></i>Resumen</a>';
                     echo '<button class="btn btn-outline-info btn-sm" onclick="agregarUser(' . $row['id'] . ')"><i class="fas fa-child me-1"></i>Agregar niño</button>';
                     if ($puedeVerReporteTutor) {
                         echo '<button class="btn btn-outline-dark btn-sm" data-tutor-id="' . (int) $row['id'] . '" data-tutor-nombre="' . htmlspecialchars($row['name'], ENT_QUOTES, 'UTF-8') . '" onclick="mostrarReporteTutor(this)"><i class="fas fa-chart-bar me-1"></i>Reporte</button>';

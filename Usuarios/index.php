@@ -78,7 +78,8 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                 <?php
                 $sql = "SELECT usua.`id`, usua.`name`, `user`, `pass`, usua.`activo`, `registro`, `telefono`, `correo`, r.name AS rol
                         FROM `Usuarios` usua
-                        INNER JOIN Rol r ON r.id = usua.IdRol";
+                        INNER JOIN Rol r ON r.id = usua.IdRol
+                        ORDER BY usua.`id` DESC";
                 $result = $conn->query($sql);
 
                 $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
@@ -120,7 +121,7 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                             : '<span class="text-muted">Sin dato</span>';
 
                         echo '<tr class="' . $rowStateClass . '">';
-                        echo '<td class="fw-semibold">#' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '</td>';
+                        echo '<td class="fw-semibold" data-order="' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '">#' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '</td>';
                         echo '<td>';
                         echo '<div class="d-flex flex-column">';
                         echo '<span class="fw-semibold">' . $nombre . '</span>';
@@ -404,7 +405,8 @@ include '../Modulos/footer.php';
                 infoFiltered: '(Buscamos en _MAX_ resultados)'
             },
             dom: 'tip',
-            responsive: true
+            responsive: true,
+            order: [[0, 'desc']]
             });
         }
 

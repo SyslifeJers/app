@@ -477,6 +477,10 @@ function actualizarCitaPago(info) {
   }
 
   confirmarPago.onclick = function () {
+    if (confirmarPago.disabled) {
+      return;
+    }
+
     if (!Array.isArray(pagoModalEstado.pagos) || pagoModalEstado.pagos.length === 0) {
       alert('Agrega al menos una forma de pago.');
       return;
@@ -519,6 +523,8 @@ function actualizarCitaPago(info) {
       return;
     }
 
+    confirmarPago.disabled = true;
+
     const xhr = new XMLHttpRequest();
     xhr.open('POST', 'cancelar.php', true);
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -526,6 +532,7 @@ function actualizarCitaPago(info) {
 
     xhr.onreadystatechange = function () {
       if (xhr.readyState === 4) {
+        confirmarPago.disabled = false;
         pagoModalEstado.modal.hide();
 
         let responseData = null;
