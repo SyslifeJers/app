@@ -97,6 +97,10 @@ function fechaMxTicket(?string $fecha): string
                     </p>
                 </div>
                 <div class="d-flex flex-column flex-lg-row align-items-stretch align-items-lg-center gap-2">
+                    <a href="/Tickets/reporte_mensual.php" class="btn btn-outline-primary d-flex align-items-center justify-content-center gap-2">
+                        <i class="fas fa-chart-bar"></i>
+                        <span>Reporte mensual</span>
+                    </a>
                     <a href="/Tickets/crear.php" class="btn btn-primary d-flex align-items-center justify-content-center gap-2">
                         <i class="fas fa-plus"></i>
                         <span>Subir ticket</span>

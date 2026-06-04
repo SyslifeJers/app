@@ -3,6 +3,8 @@
 include 'Modulos/head.php';
 
 $rolUsuario = $_SESSION['rol'] ?? 0;
+$esAdministrador = (int) $rolUsuario === 3;
+$tutoresPagoSinCita = [];
 $zonaHorariaApp = new DateTimeZone('America/Mexico_City');
 $fechaCorteHoy = (new DateTime('now', $zonaHorariaApp))->format('Y-m-d');
 $fechaCorteHoyTexto = DateTime::createFromFormat('Y-m-d', $fechaCorteHoy, $zonaHorariaApp);
@@ -167,6 +169,13 @@ if ($stmtReunionesProgramadas = $conn->prepare($sqlReunionesProgramadas)) {
 }
 
 $reunionesProgramadasTotal = count($reunionesProgramadas);
+
+if ($esAdministrador && $resultadoTutoresPagoSinCita = $conn->query("SELECT c.id AS tutor_id, c.name AS tutor_nombre, n.id AS paciente_id, n.name AS paciente_nombre, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM Clientes c INNER JOIN nino n ON n.idtutor = c.id WHERE c.activo = 1 AND n.activo = 1 ORDER BY c.name ASC, n.name ASC LIMIT 1000")) {
+    while ($tutorPagoSinCita = $resultadoTutoresPagoSinCita->fetch_assoc()) {
+        $tutoresPagoSinCita[] = $tutorPagoSinCita;
+    }
+    $resultadoTutoresPagoSinCita->free();
+}
 ?>
 
 <div class="row">
@@ -450,6 +459,177 @@ $result = $stmt->get_result();
     </div>
   </div>
 </div>
+
+<?php if ($esAdministrador): ?>
+<style>
+  .floating-payment-no-appointment {
+    position: fixed;
+    right: 28px;
+    bottom: 28px;
+    z-index: 1050;
+    width: 58px;
+    height: 58px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+</style>
+<button type="button" class="btn btn-warning rounded-circle shadow-lg floating-payment-no-appointment" data-bs-toggle="modal" data-bs-target="#modalPagoSinCitaInicio" aria-label="Registrar pago sin cita" title="Registrar pago sin cita">
+  <i class="fas fa-receipt"></i>
+</button>
+<div class="modal fade" id="modalPagoSinCitaInicio" tabindex="-1" aria-labelledby="modalPagoSinCitaInicioLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post" action="/PagosDemo/index.php">
+        <input type="hidden" name="accion" value="registrar_pago_sin_cita">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalPagoSinCitaInicioLabel"><i class="fas fa-receipt me-2"></i>Pago sin cita</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-warning py-2">
+            El pago se registra en el corte del dia sin ligarse a una cita. Abona adeudo y cualquier excedente queda como saldo disponible.
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="inicioPagoSinCitaBuscar">Buscar tutor</label>
+              <input type="search" class="form-control" id="inicioPagoSinCitaBuscar" placeholder="Escribe el nombre del tutor">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="inicioPagoSinCitaTutor">Tutor</label>
+              <select class="form-select" id="inicioPagoSinCitaTutor" name="tutor_id" required>
+                <option value="">Selecciona tutor</option>
+              </select>
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="inicioPagoSinCitaPaciente">Paciente a acreditar</label>
+              <select class="form-select" id="inicioPagoSinCitaPaciente" name="paciente_id" required>
+                <option value="">Selecciona primero un tutor</option>
+              </select>
+              <div class="form-text" id="inicioPagoSinCitaSaldoTexto">El saldo estimado se mostrara al elegir paciente y monto.</div>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="inicioPagoSinCitaMetodo">Metodo de pago</label>
+              <select class="form-select" id="inicioPagoSinCitaMetodo" name="metodo_pago" required>
+                <option value="">Selecciona metodo</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="Transferencia">Transferencia</option>
+                <option value="Tarjeta">Tarjeta</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="inicioPagoSinCitaMonto">Monto pagado</label>
+              <input type="number" min="0.01" step="0.01" class="form-control" id="inicioPagoSinCitaMonto" name="monto" required>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="inicioPagoSinCitaObservaciones">Observaciones</label>
+              <input type="text" class="form-control" id="inicioPagoSinCitaObservaciones" name="observaciones" maxlength="255" placeholder="Opcional">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-warning">Registrar pago</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var input = document.getElementById('inicioPagoSinCitaBuscar');
+    var tutorSelect = document.getElementById('inicioPagoSinCitaTutor');
+    var select = document.getElementById('inicioPagoSinCitaPaciente');
+    var montoInput = document.getElementById('inicioPagoSinCitaMonto');
+    var saldoTexto = document.getElementById('inicioPagoSinCitaSaldoTexto');
+    var tutores = <?php echo json_encode($tutoresPagoSinCita, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    var currency = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+    if (!input || !tutorSelect || !select) {
+      return;
+    }
+
+    function toNumber(value) {
+      var parsed = Number.parseFloat(value || '0');
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+
+    function normalizeSearch(value) {
+      return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    }
+
+    function renderTutores(query) {
+      var normalizedQuery = normalizeSearch(query);
+      var tutorMap = new Map();
+      tutores.forEach(function (item) {
+        var tutorId = String(item.tutor_id || '');
+        if (!tutorId || tutorMap.has(tutorId)) {
+          return;
+        }
+        var tutorNombre = String(item.tutor_nombre || 'Tutor sin nombre');
+        if (normalizedQuery !== '' && normalizeSearch(tutorNombre).indexOf(normalizedQuery) === -1) {
+          return;
+        }
+        tutorMap.set(tutorId, tutorNombre);
+      });
+
+      var currentValue = tutorSelect.value;
+      tutorSelect.innerHTML = '<option value="">Selecciona tutor</option>';
+      tutorMap.forEach(function (nombre, id) {
+        var option = document.createElement('option');
+        option.value = id;
+        option.textContent = nombre + ' #' + id;
+        tutorSelect.appendChild(option);
+      });
+      if (currentValue && tutorMap.has(currentValue)) {
+        tutorSelect.value = currentValue;
+      }
+    }
+
+    function updateSaldoTexto() {
+      if (!saldoTexto) {
+        return;
+      }
+      var option = select.options[select.selectedIndex];
+      if (!option || !option.value) {
+        saldoTexto.textContent = 'El saldo estimado se mostrara al elegir paciente y monto.';
+        return;
+      }
+      var saldoActual = toNumber(option.dataset.saldo);
+      var monto = montoInput ? Math.max(0, toNumber(montoInput.value)) : 0;
+      saldoTexto.textContent = 'Saldo actual: ' + currency.format(saldoActual) + ' | Pago: +' + currency.format(monto) + ' | Saldo final: ' + currency.format(saldoActual + monto);
+    }
+
+    function updatePacientes() {
+      var tutorId = tutorSelect.value;
+      select.innerHTML = tutorId ? '<option value="">Selecciona paciente</option>' : '<option value="">Selecciona primero un tutor</option>';
+      tutores.forEach(function (item) {
+        if (String(item.tutor_id || '') !== tutorId) {
+          return;
+        }
+        var option = document.createElement('option');
+        option.value = item.paciente_id;
+        option.dataset.saldo = String(item.saldo_demo || 0);
+        option.textContent = String(item.paciente_nombre || 'Paciente sin nombre') + ' - saldo ' + currency.format(toNumber(item.saldo_demo));
+        select.appendChild(option);
+      });
+      updateSaldoTexto();
+    }
+
+    input.addEventListener('input', function () {
+      renderTutores(input.value);
+      updatePacientes();
+    });
+    tutorSelect.addEventListener('change', updatePacientes);
+    select.addEventListener('change', updateSaldoTexto);
+    if (montoInput) {
+      montoInput.addEventListener('input', updateSaldoTexto);
+      montoInput.addEventListener('change', updateSaldoTexto);
+    }
+    renderTutores('');
+  });
+</script>
+<?php endif; ?>
 
 
 

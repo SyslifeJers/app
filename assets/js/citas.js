@@ -141,15 +141,18 @@ function actualizarResumenPagos() {
     }
 
     if (totales.totalSaldo > 0.009) {
-      const saldoRestante = Math.max(0, pagoModalEstado.saldo - totales.totalSaldo);
-      mensaje += ' Saldo utilizado: ' + formatoMoneda.format(totales.totalSaldo) + '. Saldo restante: ' + formatoMoneda.format(saldoRestante) + '.';
+      const saldoRestante = pagoModalEstado.saldo < -0.0001
+        ? pagoModalEstado.saldo + totales.totalSaldo
+        : pagoModalEstado.saldo - totales.totalSaldo;
+      const etiquetaSaldo = pagoModalEstado.saldo < -0.0001 ? 'Abono a adeudo' : 'Saldo utilizado';
+      mensaje += ' ' + etiquetaSaldo + ': ' + formatoMoneda.format(totales.totalSaldo) + '. Saldo final: ' + formatoMoneda.format(saldoRestante) + '.';
     }
 
     resumenPagos.textContent = mensaje;
   }
 
   if (alertaSaldoInsuficiente) {
-    if (totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
+    if (pagoModalEstado.saldo >= -0.0001 && totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
       alertaSaldoInsuficiente.classList.remove('d-none');
     } else {
       alertaSaldoInsuficiente.classList.add('d-none');
@@ -167,7 +170,7 @@ function actualizarBotonesPagos() {
   const saldoDisponible = pagoModalEstado.saldo || 0;
   const saldoEnUso = pagoModalEstado.pagos.some((pago) => (pago.metodo || '').trim() === METODO_SALDO);
 
-  if (saldoDisponible <= 0 || saldoEnUso) {
+  if (Math.abs(saldoDisponible) < 0.0001 || saldoEnUso) {
     agregarPagoSaldoBtn.setAttribute('disabled', 'disabled');
   } else {
     agregarPagoSaldoBtn.removeAttribute('disabled');
@@ -264,7 +267,8 @@ function handleMetodoChange(index, nuevoMetodo) {
       const totales = obtenerTotalesPagos();
       const totalSinActual = totales.total - (Number.isNaN(montoActual) ? 0 : montoActual);
       const faltante = Math.max(0, pagoModalEstado.costo - totalSinActual);
-      const montoSugerido = Math.min(pagoModalEstado.saldo, faltante > 0 ? faltante : pagoModalEstado.saldo);
+      const saldoAplicable = pagoModalEstado.saldo < -0.0001 ? Math.abs(pagoModalEstado.saldo) : pagoModalEstado.saldo;
+      const montoSugerido = Math.min(saldoAplicable, faltante > 0 ? faltante : saldoAplicable);
       pagoModalEstado.pagos[index].monto = parseFloat(montoSugerido.toFixed(2));
     }
   }
@@ -415,10 +419,11 @@ if (agregarPagoSaldoBtn) {
   agregarPagoSaldoBtn.addEventListener('click', () => {
     const totales = obtenerTotalesPagos();
     const faltante = Math.max(0, pagoModalEstado.costo - totales.total);
-    let montoSugerido = faltante > 0 ? faltante : pagoModalEstado.saldo;
-    montoSugerido = Math.min(pagoModalEstado.saldo, montoSugerido);
+    const saldoAplicable = pagoModalEstado.saldo < -0.0001 ? Math.abs(pagoModalEstado.saldo) : pagoModalEstado.saldo;
+    let montoSugerido = faltante > 0 ? faltante : saldoAplicable;
+    montoSugerido = Math.min(saldoAplicable, montoSugerido);
     if (montoSugerido <= 0) {
-      montoSugerido = Math.min(pagoModalEstado.saldo, pagoModalEstado.costo);
+      montoSugerido = Math.min(saldoAplicable, pagoModalEstado.costo);
     }
     agregarPagoGenerico(METODO_SALDO, montoSugerido);
   });
@@ -518,7 +523,7 @@ function actualizarCitaPago(info) {
       }
     }
 
-    if (totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
+    if (pagoModalEstado.saldo >= -0.0001 && totales.totalSaldo > pagoModalEstado.saldo + 0.0001) {
       alert('El saldo disponible no es suficiente para cubrir el monto asignado.');
       return;
     }

@@ -1,0 +1,14 @@
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\bin\Debug\net10.0\EventosChecador.exe
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\bin\Debug\net10.0\EventosChecador.deps.json
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\bin\Debug\net10.0\EventosChecador.runtimeconfig.json
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\bin\Debug\net10.0\EventosChecador.dll
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\bin\Debug\net10.0\EventosChecador.pdb
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.GeneratedMSBuildEditorConfig.editorconfig
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.AssemblyInfoInputs.cache
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.AssemblyInfo.cs
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.csproj.CoreCompileInputs.cache
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.dll
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\refint\EventosChecador.dll
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.pdb
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\EventosChecador.genruntimeconfig.cache
+C:\Users\chiva\source\repos\EventosChecador\EventosChecador\obj\Debug\net10.0\ref\EventosChecador.dll

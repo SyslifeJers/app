@@ -233,13 +233,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $saldoDisponible = obtenerSaldoPaciente($conn, (int) $pacienteId);
             if ($totalSaldoUtilizado > 0) {
-                if ($saldoDisponible + 0.0001 < $totalSaldoUtilizado) {
+                $ajusteSaldo = $saldoDisponible < -0.0001 ? $totalSaldoUtilizado : -1 * $totalSaldoUtilizado;
+                if ($saldoDisponible >= -0.0001 && $saldoDisponible + 0.0001 < $totalSaldoUtilizado) {
                     throw new Exception('El saldo del paciente es insuficiente para cubrir los montos asignados.');
                 }
-                if (!ajustarSaldoPaciente($conn, (int) $pacienteId, -1 * $totalSaldoUtilizado)) {
+                if (!ajustarSaldoPaciente($conn, (int) $pacienteId, $ajusteSaldo)) {
                     throw new Exception('No fue posible actualizar el saldo del paciente.');
                 }
-                $detallesSaldo[] = sprintf('Se descontaron %s del saldo del paciente.', number_format($totalSaldoUtilizado, 2));
+                $detallesSaldo[] = $saldoDisponible < -0.0001
+                    ? sprintf('Se abonaron %s al adeudo del paciente.', number_format($totalSaldoUtilizado, 2))
+                    : sprintf('Se descontaron %s del saldo del paciente.', number_format($totalSaldoUtilizado, 2));
             }
 
             $montoNecesarioExternos = max(0, (float) $costoCita - $totalSaldoUtilizado);

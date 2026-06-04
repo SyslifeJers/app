@@ -4,9 +4,11 @@ require_once __DIR__ . '/../Modulos/conflictos_agenda.php';
 require_once __DIR__ . '/../Modulos/resumen_pagos.php';
 
 $ROL_PRACTICANTE = 6;
+$ROL_ADMIN = 3;
 $rolesPermitidos = [1, 2, 3, 5];
 $rolUsuario = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 $usuarioId = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
+$esAdministradorDemo = $rolUsuario === $ROL_ADMIN;
 
 date_default_timezone_set('America/Mexico_City');
 
@@ -141,7 +143,7 @@ function demoPagosInsertarMovimientoSaldo(mysqli $conn, int $pacienteId, string 
     $saldoAnterior = demoPagosSaldo($conn, $pacienteId);
     $saldoNuevo = $saldoAnterior + $monto;
 
-    if ($saldoNuevo < -0.0001 && $tipo !== 'adeudo_cita') {
+    if ($saldoNuevo < -0.0001 && $monto < 0 && $tipo !== 'adeudo_cita') {
         throw new RuntimeException('El saldo del paciente es insuficiente.');
     }
 
@@ -184,6 +186,26 @@ function demoPagosPaciente(mysqli $conn, int $pacienteId): array
 
     if (!$paciente) {
         throw new RuntimeException('Paciente no encontrado.');
+    }
+
+    return $paciente;
+}
+
+function demoPagosPacienteDelTutor(mysqli $conn, int $pacienteId, int $tutorId): array
+{
+    $stmt = $conn->prepare('SELECT id, name, COALESCE(saldo_paquete, 0) AS saldo_demo FROM nino WHERE id = ? AND idtutor = ? LIMIT 1');
+    if (!$stmt) {
+        throw new RuntimeException('No fue posible consultar el paciente del tutor.');
+    }
+
+    $stmt->bind_param('ii', $pacienteId, $tutorId);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $paciente = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    if (!$paciente) {
+        throw new RuntimeException('Selecciona un paciente valido para el tutor.');
     }
 
     return $paciente;
@@ -298,19 +320,6 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $paciente = demoPagosPaciente($conn, $pacienteId);
             $psicologo = demoPagosPsicologo($conn, $psicologoId);
 
-            $stmtDuplicado = $conn->prepare('SELECT COUNT(*) FROM Cita WHERE IdNino = ? AND Programado = ?');
-            if (!$stmtDuplicado) {
-                throw new RuntimeException('No fue posible validar duplicados de cita.');
-            }
-            $stmtDuplicado->bind_param('is', $pacienteId, $fechaProgramada);
-            $stmtDuplicado->execute();
-            $stmtDuplicado->bind_result($duplicados);
-            $stmtDuplicado->fetch();
-            $stmtDuplicado->close();
-            if ((int) $duplicados > 0) {
-                throw new RuntimeException('Ya existe una cita para este paciente en esa fecha y hora.');
-            }
-
             $conflicto = obtenerConflictoAgendaPsicologo($conn, $psicologoId, $fechaProgramada, $tiempo, null, $pacienteId);
             if ($conflicto !== null) {
                 throw new RuntimeException('La psicologa ya tiene un conflicto de agenda en ese horario.');
@@ -340,6 +349,46 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             $mensajeDemo = 'Cita registrada para ' . $paciente['name'] . ' con ' . $psicologo['name'] . '. Los pagos quedan separados del registro de cita.';
+        } elseif ($accion === 'registrar_pago_sin_cita') {
+            if (!$esAdministradorDemo) {
+                throw new RuntimeException('Solo el administrador puede registrar pagos sin cita.');
+            }
+
+            $tutorId = isset($_POST['tutor_id']) ? (int) $_POST['tutor_id'] : 0;
+            $pacienteId = isset($_POST['paciente_id']) ? (int) $_POST['paciente_id'] : 0;
+            $metodoPago = isset($_POST['metodo_pago']) ? substr(trim((string) $_POST['metodo_pago']), 0, 50) : '';
+            $monto = isset($_POST['monto']) ? (float) $_POST['monto'] : 0.0;
+            $observaciones = isset($_POST['observaciones']) ? substr(trim((string) $_POST['observaciones']), 0, 255) : null;
+
+            if ($tutorId <= 0 || $pacienteId <= 0 || $monto <= 0 || $metodoPago === '') {
+                throw new RuntimeException('Selecciona tutor, paciente, metodo de pago y monto mayor a cero.');
+            }
+
+            $paciente = demoPagosPacienteDelTutor($conn, $pacienteId, $tutorId);
+            $saldoAnterior = demoPagosSaldo($conn, $pacienteId);
+            $tipoMovimiento = $saldoAnterior < -0.0001 ? 'abono_adeudo' : 'agregar_saldo';
+            $pagoId = demoPagosInsertarPago($conn, [
+                'origen' => 'sin_cita',
+                'referencia_id' => $tutorId,
+                'cita_id' => null,
+                'paquete_id' => null,
+                'paciente_id' => $pacienteId,
+                'paciente_nombre' => substr((string) $paciente['name'], 0, 150),
+                'psicologo_id' => null,
+                'psicologo_nombre' => null,
+                'monto' => $monto,
+                'metodo_pago' => $metodoPago,
+                'fecha_pago' => $fechaActual,
+                'fecha_corte' => $fechaCorte,
+                'registrado_por' => $usuarioId,
+                'observaciones' => $observaciones !== '' ? $observaciones : 'Pago sin cita',
+            ]);
+
+            demoPagosInsertarMovimientoSaldo($conn, $pacienteId, $tipoMovimiento, $monto, $pagoId, null, null, $usuarioId, $observaciones !== '' ? $observaciones : 'Pago sin cita');
+
+            $mensajeDemo = $saldoAnterior < -0.0001
+                ? 'Pago sin cita registrado. Se abonó al adeudo y el excedente quedó como saldo disponible.'
+                : 'Pago sin cita registrado como saldo disponible.';
         } elseif ($accion === 'agregar_saldo') {
             $pacienteId = isset($_POST['paciente_id']) ? (int) $_POST['paciente_id'] : 0;
             $metodoPago = isset($_POST['metodo_pago']) ? substr(trim((string) $_POST['metodo_pago']), 0, 50) : '';
@@ -506,6 +555,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $pacientes = [];
+$tutoresPagoSinCita = [];
 $psicologos = [];
 $paquetes = [];
 $citas = [];
@@ -527,6 +577,13 @@ if ($tienePermisoDemo) {
     if ($result = $conn->query('SELECT n.id, n.name, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM nino n WHERE n.activo = 1 ORDER BY n.name ASC LIMIT 500')) {
         while ($row = $result->fetch_assoc()) {
             $pacientes[] = $row;
+        }
+        $result->free();
+    }
+
+    if ($result = $conn->query("SELECT c.id AS tutor_id, c.name AS tutor_nombre, n.id AS paciente_id, n.name AS paciente_nombre, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM Clientes c INNER JOIN nino n ON n.idtutor = c.id WHERE c.activo = 1 AND n.activo = 1 ORDER BY c.name ASC, n.name ASC LIMIT 1000")) {
+        while ($row = $result->fetch_assoc()) {
+            $tutoresPagoSinCita[] = $row;
         }
         $result->free();
     }
@@ -651,18 +708,28 @@ if ($tienePermisoDemo) {
         $result->free();
     }
 
-    if ($result = $conn->query('SELECT id, origen, referencia_id, paciente_nombre, psicologo_nombre, monto, metodo_pago, fecha_pago, observaciones FROM Pagos ORDER BY id DESC LIMIT 50')) {
-        while ($row = $result->fetch_assoc()) {
-            $pagosRecientes[] = $row;
+    if ($stmtPagosRecientes = $conn->prepare('SELECT id, origen, referencia_id, paciente_nombre, psicologo_nombre, monto, metodo_pago, fecha_pago, observaciones FROM Pagos WHERE fecha_corte = ? ORDER BY id DESC LIMIT 50')) {
+        $stmtPagosRecientes->bind_param('s', $fechaVista);
+        $stmtPagosRecientes->execute();
+        $result = $stmtPagosRecientes->get_result();
+        if ($result instanceof mysqli_result) {
+            while ($row = $result->fetch_assoc()) {
+                $pagosRecientes[] = $row;
+            }
         }
-        $result->free();
+        $stmtPagosRecientes->close();
     }
 
-    if ($result = $conn->query('SELECT dsm.id, dsm.paciente_id, n.name AS paciente_nombre, dsm.tipo, dsm.monto, dsm.saldo_anterior, dsm.saldo_nuevo, dsm.cita_id, dsm.paquete_id, dsm.observaciones, dsm.creado_en FROM SaldoMovimientos dsm INNER JOIN nino n ON n.id = dsm.paciente_id ORDER BY dsm.id DESC LIMIT 50')) {
-        while ($row = $result->fetch_assoc()) {
-            $movimientosRecientes[] = $row;
+    if ($stmtMovimientosRecientes = $conn->prepare('SELECT dsm.id, dsm.paciente_id, n.name AS paciente_nombre, dsm.tipo, dsm.monto, dsm.saldo_anterior, dsm.saldo_nuevo, dsm.cita_id, dsm.paquete_id, dsm.observaciones, dsm.creado_en FROM SaldoMovimientos dsm INNER JOIN nino n ON n.id = dsm.paciente_id WHERE DATE(dsm.creado_en) = ? ORDER BY dsm.id DESC LIMIT 50')) {
+        $stmtMovimientosRecientes->bind_param('s', $fechaVista);
+        $stmtMovimientosRecientes->execute();
+        $result = $stmtMovimientosRecientes->get_result();
+        if ($result instanceof mysqli_result) {
+            while ($row = $result->fetch_assoc()) {
+                $movimientosRecientes[] = $row;
+            }
         }
-        $result->free();
+        $stmtMovimientosRecientes->close();
     }
 }
 ?>
@@ -821,6 +888,18 @@ if ($tienePermisoDemo) {
             justify-content: center;
             font-size: 22px;
         }
+        .demo-floating-no-appointment-payment {
+            position: fixed;
+            right: 28px;
+            bottom: 232px;
+            z-index: 1050;
+            width: 58px;
+            height: 58px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
         .demo-availability-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -892,6 +971,12 @@ if ($tienePermisoDemo) {
         <i class="far fa-calendar-plus"></i>
     </button>
 
+    <?php if ($esAdministradorDemo): ?>
+        <button type="button" class="btn btn-warning rounded-circle shadow-lg demo-floating-no-appointment-payment" data-bs-toggle="modal" data-bs-target="#modalPagoSinCitaDemo" aria-label="Abrir pago sin cita" title="Registrar pago sin cita">
+            <i class="fas fa-receipt"></i>
+        </button>
+    <?php endif; ?>
+
     <div class="modal fade" id="modalAgendarCitaDemo" tabindex="-1" aria-labelledby="modalAgendarCitaDemoLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
@@ -927,7 +1012,7 @@ if ($tienePermisoDemo) {
                             </div>
                             <div class="col-md-6">
                                 <label class="form-label" for="registroProgramado">Fecha y hora</label>
-                                <input type="datetime-local" class="form-control" id="registroProgramado" name="programado" step="900" value="<?php echo htmlspecialchars(date('Y-m-d\\TH:i'), ENT_QUOTES, 'UTF-8'); ?>" required>
+                                <input type="datetime-local" class="form-control" id="registroProgramado" name="programado" step="any" value="<?php echo htmlspecialchars(date('Y-m-d\\TH:i'), ENT_QUOTES, 'UTF-8'); ?>" required>
                             </div>
                             <div class="col-md-4">
                                 <label class="form-label" for="registroTipo">Tipo de cita</label>
@@ -1029,6 +1114,67 @@ if ($tienePermisoDemo) {
             </div>
         </div>
     </div>
+
+    <?php if ($esAdministradorDemo): ?>
+        <div class="modal fade" id="modalPagoSinCitaDemo" tabindex="-1" aria-labelledby="modalPagoSinCitaDemoLabel" aria-hidden="true">
+            <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <form method="post">
+                        <input type="hidden" name="accion" value="registrar_pago_sin_cita">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="modalPagoSinCitaDemoLabel"><i class="fas fa-receipt me-2"></i>Pago sin cita</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="alert alert-warning py-2">
+                                Este registro entra al corte del dia sin ligarse a una cita. El monto abona al adeudo del paciente y cualquier excedente queda como saldo disponible.
+                            </div>
+                            <div class="row g-3">
+                                <div class="col-md-6">
+                                    <label class="form-label" for="pagoSinCitaTutorBuscar">Buscar tutor</label>
+                                    <input type="search" class="form-control" id="pagoSinCitaTutorBuscar" placeholder="Escribe el nombre del tutor">
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label" for="pagoSinCitaTutor">Tutor</label>
+                                    <select class="form-select" id="pagoSinCitaTutor" name="tutor_id" required>
+                                        <option value="">Selecciona tutor</option>
+                                    </select>
+                                </div>
+                                <div class="col-12">
+                                    <label class="form-label" for="pagoSinCitaPaciente">Paciente a acreditar</label>
+                                    <select class="form-select" id="pagoSinCitaPaciente" name="paciente_id" required>
+                                        <option value="">Selecciona primero un tutor</option>
+                                    </select>
+                                    <div class="form-text" id="pagoSinCitaSaldoTexto">El saldo estimado se mostrara al elegir paciente y monto.</div>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="pagoSinCitaMetodo">Metodo de pago</label>
+                                    <select class="form-select" id="pagoSinCitaMetodo" name="metodo_pago" required>
+                                        <option value="">Selecciona metodo</option>
+                                        <option value="Efectivo">Efectivo</option>
+                                        <option value="Transferencia">Transferencia</option>
+                                        <option value="Tarjeta">Tarjeta</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="pagoSinCitaMonto">Monto pagado</label>
+                                    <input type="number" min="0.01" step="0.01" class="form-control" id="pagoSinCitaMonto" name="monto" required>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label" for="pagoSinCitaObservaciones">Observaciones</label>
+                                    <input type="text" class="form-control" id="pagoSinCitaObservaciones" name="observaciones" maxlength="255" placeholder="Opcional">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                            <button type="submit" class="btn btn-warning">Registrar pago</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="modal fade" id="modalVentaPaqueteDemo" tabindex="-1" aria-labelledby="modalVentaPaqueteDemoLabel" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -1184,7 +1330,7 @@ if ($tienePermisoDemo) {
                 <div class="card-header"><h4 class="card-title mb-0">Totales por metodo</h4></div>
                 <div class="card-body">
                     <?php if ($resumenMetodo === []): ?>
-                        <div class="text-muted">Sin pagos demo registrados.</div>
+                        <div class="text-muted">Sin pagos registrados.</div>
                     <?php else: ?>
                         <?php foreach ($resumenMetodo as $fila): ?>
                             <div class="d-flex justify-content-between border-bottom py-2">
@@ -1201,7 +1347,7 @@ if ($tienePermisoDemo) {
                 <div class="card-header"><h4 class="card-title mb-0">Totales por origen</h4></div>
                 <div class="card-body">
                     <?php if ($resumenOrigen === []): ?>
-                        <div class="text-muted">Sin pagos demo registrados.</div>
+                        <div class="text-muted">Sin pagos registrados.</div>
                     <?php else: ?>
                         <?php foreach ($resumenOrigen as $fila): ?>
                             <div class="d-flex justify-content-between border-bottom py-2">
@@ -1216,7 +1362,7 @@ if ($tienePermisoDemo) {
     </div>
 
     <div class="card mb-4">
-        <div class="card-header"><h4 class="card-title mb-0">Pagos demo recientes</h4></div>
+        <div class="card-header"><h4 class="card-title mb-0">Pagos del día</h4></div>
         <div class="card-body">
             <div class="table-responsive">
                 <table class="table table-sm align-middle" id="tablaDemoPagos">
@@ -1285,6 +1431,12 @@ if ($tienePermisoDemo) {
         const saldoMovimientoDemoTexto = document.getElementById('saldoMovimientoDemoTexto');
         const saldoEstimadoDemoTexto = document.getElementById('saldoEstimadoDemoTexto');
         const saldoAccionDemoTexto = document.getElementById('saldoAccionDemoTexto');
+        const pagoSinCitaTutorBuscar = document.getElementById('pagoSinCitaTutorBuscar');
+        const pagoSinCitaTutorSelect = document.getElementById('pagoSinCitaTutor');
+        const pagoSinCitaPacienteSelect = document.getElementById('pagoSinCitaPaciente');
+        const pagoSinCitaMontoInput = document.getElementById('pagoSinCitaMonto');
+        const pagoSinCitaSaldoTexto = document.getElementById('pagoSinCitaSaldoTexto');
+        const tutoresPagoSinCita = <?php echo json_encode($tutoresPagoSinCita, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
         const historialPacientes = <?php echo json_encode($historialPacientesDemo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
         const agendaPsicologos = <?php echo json_encode($agendaPsicologosDemo, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
 
@@ -1460,6 +1612,74 @@ if ($tienePermisoDemo) {
             }
         }
 
+        function renderPagoSinCitaTutores(query) {
+            if (!pagoSinCitaTutorSelect) {
+                return;
+            }
+
+            const normalizedQuery = normalizeSearch(query);
+            const tutorMap = new Map();
+            tutoresPagoSinCita.forEach(function (item) {
+                const tutorId = String(item.tutor_id || '');
+                if (!tutorId || tutorMap.has(tutorId)) {
+                    return;
+                }
+                const tutorNombre = String(item.tutor_nombre || 'Tutor sin nombre');
+                if (normalizedQuery !== '' && normalizeSearch(tutorNombre).indexOf(normalizedQuery) === -1) {
+                    return;
+                }
+                tutorMap.set(tutorId, tutorNombre);
+            });
+
+            const currentValue = pagoSinCitaTutorSelect.value;
+            pagoSinCitaTutorSelect.innerHTML = '<option value="">Selecciona tutor</option>';
+            tutorMap.forEach(function (nombre, id) {
+                const option = document.createElement('option');
+                option.value = id;
+                option.textContent = nombre + ' #' + id;
+                pagoSinCitaTutorSelect.appendChild(option);
+            });
+            if (currentValue && tutorMap.has(currentValue)) {
+                pagoSinCitaTutorSelect.value = currentValue;
+            }
+        }
+
+        function updatePagoSinCitaPacientes() {
+            if (!pagoSinCitaTutorSelect || !pagoSinCitaPacienteSelect) {
+                return;
+            }
+
+            const tutorId = pagoSinCitaTutorSelect.value;
+            pagoSinCitaPacienteSelect.innerHTML = tutorId ? '<option value="">Selecciona paciente</option>' : '<option value="">Selecciona primero un tutor</option>';
+            tutoresPagoSinCita.forEach(function (item) {
+                if (String(item.tutor_id || '') !== tutorId) {
+                    return;
+                }
+                const option = document.createElement('option');
+                option.value = item.paciente_id;
+                option.dataset.saldo = String(item.saldo_demo || 0);
+                option.textContent = String(item.paciente_nombre || 'Paciente sin nombre') + ' - saldo ' + currency.format(toNumber(item.saldo_demo));
+                pagoSinCitaPacienteSelect.appendChild(option);
+            });
+            updatePagoSinCitaSaldo();
+        }
+
+        function updatePagoSinCitaSaldo() {
+            if (!pagoSinCitaPacienteSelect || !pagoSinCitaSaldoTexto) {
+                return;
+            }
+
+            const option = pagoSinCitaPacienteSelect.options[pagoSinCitaPacienteSelect.selectedIndex];
+            const saldoActual = option && option.value ? toNumber(option.dataset.saldo) : 0;
+            const monto = pagoSinCitaMontoInput ? Math.max(0, toNumber(pagoSinCitaMontoInput.value)) : 0;
+            const saldoNuevo = saldoActual + monto;
+            if (!option || !option.value) {
+                pagoSinCitaSaldoTexto.textContent = 'El saldo estimado se mostrara al elegir paciente y monto.';
+                return;
+            }
+            pagoSinCitaSaldoTexto.textContent = 'Saldo actual: ' + currency.format(saldoActual) + ' | Pago: +' + currency.format(monto) + ' | Saldo final: ' + currency.format(saldoNuevo);
+        }
+
         function normalizeSearch(value) {
             return String(value || '')
                 .toLowerCase()
@@ -1519,6 +1739,24 @@ if ($tienePermisoDemo) {
         if (saldoMontoInput) {
             saldoMontoInput.addEventListener('input', updateSaldoDemoResumen);
             saldoMontoInput.addEventListener('change', updateSaldoDemoResumen);
+        }
+
+        if (pagoSinCitaTutorSelect) {
+            renderPagoSinCitaTutores('');
+            pagoSinCitaTutorSelect.addEventListener('change', updatePagoSinCitaPacientes);
+        }
+        if (pagoSinCitaTutorBuscar) {
+            pagoSinCitaTutorBuscar.addEventListener('input', function () {
+                renderPagoSinCitaTutores(pagoSinCitaTutorBuscar.value);
+                updatePagoSinCitaPacientes();
+            });
+        }
+        if (pagoSinCitaPacienteSelect) {
+            pagoSinCitaPacienteSelect.addEventListener('change', updatePagoSinCitaSaldo);
+        }
+        if (pagoSinCitaMontoInput) {
+            pagoSinCitaMontoInput.addEventListener('input', updatePagoSinCitaSaldo);
+            pagoSinCitaMontoInput.addEventListener('change', updatePagoSinCitaSaldo);
         }
 
         if (paqueteSelect) {

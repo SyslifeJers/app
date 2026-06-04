@@ -625,7 +625,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             </div>
             <div class="modal-body">
                 <dl class="row mb-3">
-                    <dt class="col-sm-4">Paciente</dt>
+                    <dt class="col-sm-4" id="move-cita-subject-label">Paciente</dt>
                     <dd class="col-sm-8" id="move-cita-paciente">Sin registro</dd>
                     <dt class="col-sm-4">Psicóloga</dt>
                     <dd class="col-sm-8" id="move-cita-psicologa">Sin registro</dd>
@@ -634,6 +634,10 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     <dt class="col-sm-4">Nueva fecha</dt>
                     <dd class="col-sm-8" id="move-cita-to">Sin dato</dd>
                 </dl>
+                <div class="mb-3">
+                    <label for="move-cita-date" class="form-label">Fecha</label>
+                    <input type="date" class="form-control" id="move-cita-date">
+                </div>
                 <div class="mb-0">
                     <label for="move-cita-time" class="form-label">Hora</label>
                     <input type="time" class="form-control" id="move-cita-time" step="1800">
@@ -1846,11 +1850,15 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
         const detailMessageButton = document.getElementById('detail-message-button');
         const reprogramModalElement = document.getElementById('updateModal');
         const moveCitaModalElement = document.getElementById('moveCitaModal');
+        const moveCitaModalTitle = document.getElementById('moveCitaModalLabel');
+        const moveCitaSubjectLabel = document.getElementById('move-cita-subject-label');
         const moveCitaPaciente = document.getElementById('move-cita-paciente');
         const moveCitaPsicologa = document.getElementById('move-cita-psicologa');
         const moveCitaFrom = document.getElementById('move-cita-from');
         const moveCitaTo = document.getElementById('move-cita-to');
+        const moveCitaDate = document.getElementById('move-cita-date');
         const moveCitaTime = document.getElementById('move-cita-time');
+        const moveCitaWarning = document.getElementById('move-cita-warning');
         const moveCitaCancel = document.getElementById('move-cita-cancel');
         const moveCitaConfirm = document.getElementById('move-cita-confirm');
         let reprogramModalInstance = null;
@@ -1985,7 +1993,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 '<div class="popup-actions">' +
                
                 (USER_CAN_EDIT && !isMeeting && !isRecurringReservation ? '<button type="button" class="popup-btn primary" data-calendar-action="reprogram">Reprogramar</button>' : '') +
-                (USER_CAN_EDIT && !isMeeting ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel">Cancelar</button>' : '') +
+                (USER_CAN_EDIT && isMeeting ? '<button type="button" class="popup-btn primary" data-calendar-action="move-meeting">Mover</button>' : '') +
+                (USER_CAN_EDIT ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel">Cancelar</button>' : '') +
                 '<button type="button" class="popup-btn" data-calendar-action="close">Cerrar</button>' +
                 '</div>'
             );
@@ -2227,8 +2236,15 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             }
 
             const props = event && event.extendedProps ? event.extendedProps : {};
+            const isMeeting = props.eventKind === 'reunion';
+            if (moveCitaModalTitle) {
+                moveCitaModalTitle.textContent = isMeeting ? 'Mover reunión' : 'Reprogramar cita';
+            }
+            if (moveCitaSubjectLabel) {
+                moveCitaSubjectLabel.textContent = isMeeting ? 'Reunión' : 'Paciente';
+            }
             if (moveCitaPaciente) {
-                moveCitaPaciente.textContent = props.paciente || 'Sin registro';
+                moveCitaPaciente.textContent = isMeeting ? (props.tipo || 'Reunión interna') : (props.paciente || 'Sin registro');
             }
             if (moveCitaPsicologa) {
                 moveCitaPsicologa.textContent = props.psicologo || 'Sin registro';
@@ -2239,8 +2255,16 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             if (moveCitaTo) {
                 moveCitaTo.textContent = new Intl.DateTimeFormat('es-MX', { dateStyle: 'full' }).format(toDate);
             }
+            if (moveCitaDate) {
+                moveCitaDate.value = toDate.getFullYear() + '-' + padNumber(toDate.getMonth() + 1, 2) + '-' + padNumber(toDate.getDate(), 2);
+            }
             if (moveCitaTime) {
                 moveCitaTime.value = String(toDate.getHours()).padStart(2, '0') + ':' + String(toDate.getMinutes()).padStart(2, '0');
+            }
+            if (moveCitaWarning) {
+                moveCitaWarning.textContent = isMeeting
+                    ? 'Al moverla, se actualizará el horario de la reunión interna.'
+                    : 'Al moverla, la cita se guardará como reprogramada.';
             }
 
             return new Promise(function (resolve) {
@@ -2267,6 +2291,12 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
                 function computeAdjustedDate() {
                     const adjusted = new Date(toDate.getTime());
+                    if (moveCitaDate && typeof moveCitaDate.value === 'string') {
+                        const dateMatch = moveCitaDate.value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        if (dateMatch) {
+                            adjusted.setFullYear(Number.parseInt(dateMatch[1], 10), Number.parseInt(dateMatch[2], 10) - 1, Number.parseInt(dateMatch[3], 10));
+                        }
+                    }
                     if (!moveCitaTime || typeof moveCitaTime.value !== 'string') {
                         return adjusted;
                     }
@@ -2385,9 +2415,127 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 });
         }
 
+        function sendCancelMeetingRequest(reunionId) {
+            if (!reunionId) {
+                return;
+            }
+
+            const confirmed = window.confirm('¿Deseas cancelar esta reunión interna?');
+            if (!confirmed) {
+                return;
+            }
+
+            fetch('../api/reuniones.php?id=' + encodeURIComponent(reunionId), {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        throw new Error('Respuesta no válida del servidor.');
+                    }).then(function (data) {
+                        return { ok: response.ok, data: data };
+                    });
+                })
+                .then(function (result) {
+                    if (!result.ok || !result.data || result.data.success !== true) {
+                        throw new Error(result.data && result.data.message ? result.data.message : 'No se pudo cancelar la reunión.');
+                    }
+
+                    showTemporaryAlert('Reunión cancelada correctamente.', 'success');
+                    loadMeetingsTable();
+                    calendar.refetchEvents();
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No se pudo cancelar la reunión.', 'danger');
+                });
+        }
+
+        function moveMeetingEvent(event, finalStart) {
+            const props = event && event.extendedProps ? event.extendedProps : {};
+            if (!event || !props.entityId || !(finalStart instanceof Date) || Number.isNaN(finalStart.getTime())) {
+                return Promise.reject(new Error('No se pudo mover la reunión seleccionada.'));
+            }
+
+            const currentStart = event.start instanceof Date ? event.start : null;
+            const currentEnd = event.end instanceof Date ? event.end : null;
+            const durationMs = currentStart && currentEnd ? Math.max(currentEnd.getTime() - currentStart.getTime(), 1800000) : 3600000;
+            const finalEnd = new Date(finalStart.getTime() + durationMs);
+
+            return fetch('../api/reuniones.php?id=' + encodeURIComponent(props.entityId), {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    inicio: toSqlDateTime(finalStart),
+                    fin: toSqlDateTime(finalEnd)
+                })
+            })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        return null;
+                    }).then(function (data) {
+                        if (!response.ok || !data || data.success !== true) {
+                            throw new Error((data && data.message) || 'No se pudo mover la reunión.');
+                        }
+                        return { start: finalStart, end: finalEnd };
+                    });
+                });
+        }
+
+        function openMoveMeetingModal(event) {
+            if (!event) {
+                showAlert('Selecciona una reunión para mover.', 'warning');
+                return;
+            }
+
+            const currentStart = event.start instanceof Date ? new Date(event.start) : null;
+            if (!currentStart) {
+                showAlert('La reunión necesita una fecha válida.', 'warning');
+                return;
+            }
+
+            confirmMoveWithModal(event, currentStart, currentStart)
+                .then(function (finalStart) {
+                    if (!finalStart) {
+                        return null;
+                    }
+                    return moveMeetingEvent(event, finalStart);
+                })
+                .then(function (result) {
+                    if (!result) {
+                        return;
+                    }
+                    event.setStart(result.start);
+                    event.setEnd(result.end);
+                    event.setExtendedProp('programado', result.start.toISOString());
+                    event.setExtendedProp('termina', result.end.toISOString());
+                    event.setExtendedProp('startTimestamp', result.start.getTime());
+                    event.setExtendedProp('endTimestamp', result.end.getTime());
+                    loadMeetingsTable();
+                    if (selectedEventId === event.id) {
+                        updateDetail(event);
+                    }
+                    showTemporaryAlert('Reunión movida correctamente.', 'success');
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No se pudo mover la reunión.', 'danger');
+                });
+        }
+
         if (detailReprogramButton) {
             detailReprogramButton.addEventListener('click', function () {
                 const citaId = detailReprogramButton.dataset.citaId || '';
+                const eventKind = detailReprogramButton.dataset.eventKind || 'cita';
+                if (eventKind === 'reunion') {
+                    const eventId = detailReprogramButton.dataset.eventId || selectedEventId || '';
+                    openMoveMeetingModal(eventId ? calendar.getEventById(eventId) : null);
+                    return;
+                }
+
                 if (!citaId) {
                     showAlert('Selecciona una cita para reprogramar.', 'warning');
                     return;
@@ -2408,6 +2556,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
                 if (eventKind === 'reservacion_continua') {
                     sendCancelRecurringReservationRequest(entityId);
+                } else if (eventKind === 'reunion') {
+                    sendCancelMeetingRequest(entityId);
                 } else {
                     sendCancelRequest(entityId);
                 }
@@ -2446,6 +2596,12 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     return;
                 }
 
+                if (action === 'move-meeting') {
+                    hideClickPopup();
+                    openMoveMeetingModal(calendarEvent);
+                    return;
+                }
+
                 if (action === 'message') {
                     copyReminderMessageForEvent(calendarEvent);
                     hideClickPopup();
@@ -2456,6 +2612,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     hideClickPopup();
                     if (calendarEvent.extendedProps && calendarEvent.extendedProps.eventKind === 'reservacion_continua') {
                         sendCancelRecurringReservationRequest(calendarEvent.extendedProps.entityId || '');
+                    } else if (calendarEvent.extendedProps && calendarEvent.extendedProps.eventKind === 'reunion') {
+                        sendCancelMeetingRequest(calendarEvent.extendedProps.entityId || '');
                     } else {
                         sendCancelRequest(calendarEvent.extendedProps && calendarEvent.extendedProps.entityId ? calendarEvent.extendedProps.entityId : '');
                     }
@@ -2586,12 +2744,14 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
             if (detailReprogramButton) {
                 detailReprogramButton.dataset.citaId = props.entityId || '';
-                detailReprogramButton.textContent = 'Reprogramar';
-                const editable = USER_CAN_EDIT && !isMeeting && !isRecurringReservation && Boolean(props.isEditable) && !isCancelled;
+                detailReprogramButton.dataset.eventKind = eventKind;
+                detailReprogramButton.dataset.eventId = event.id || '';
+                detailReprogramButton.textContent = isMeeting ? 'Mover reunión' : 'Reprogramar';
+                const editable = USER_CAN_EDIT && !isRecurringReservation && Boolean(props.isEditable) && !isCancelled;
                 detailReprogramButton.disabled = !editable || !props.entityId;
                 if (!editable) {
                     helperMessages.push(isMeeting
-                        ? 'Las reuniones internas no se reprograman desde este botón.'
+                        ? 'La reunión no se puede mover desde el calendario.'
                         : (isRecurringReservation
                             ? 'Las reservaciones continuas solo se pueden cancelar.'
                             : 'La cita no se puede reprogramar desde el calendario.'));
@@ -2601,8 +2761,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             if (detailCancelButton) {
                 detailCancelButton.dataset.citaId = props.entityId || '';
                 detailCancelButton.dataset.eventKind = eventKind;
-                detailCancelButton.textContent = isMeeting ? 'No disponible' : (isRecurringReservation ? 'Cancelar reservación' : 'Cancelar');
-                detailCancelButton.disabled = !USER_CAN_EDIT || isMeeting || !props.entityId || isCancelled;
+                detailCancelButton.textContent = isMeeting ? 'Cancelar reunión' : (isRecurringReservation ? 'Cancelar reservación' : 'Cancelar');
+                detailCancelButton.disabled = !USER_CAN_EDIT || !props.entityId || isCancelled;
             }
 
             if (isCancelled) {
@@ -2719,10 +2879,9 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                             const rawStartTimestamp = hasValidStart ? startDate.getTime() : NaN;
                             const rawEndTimestamp = hasValidEnd ? endDate.getTime() : NaN;
                             const isPaid = isFormaPagoRegistrada(item.forma_pago);
-                            const isEditable = USER_CAN_EDIT && eventKind === 'cita' && Boolean(
-                                hasValidStart &&
-                                hasValidEnd &&
-                                isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)
+                            const isEditable = USER_CAN_EDIT && hasValidStart && hasValidEnd && (
+                                (eventKind === 'cita' && isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)) ||
+                                (eventKind === 'reunion' && rawStartTimestamp >= todayTimestamp)
                             );
                             const startTimestamp = Number.isNaN(rawStartTimestamp) ? null : rawStartTimestamp;
                             const endTimestamp = Number.isNaN(rawEndTimestamp) ? null : rawEndTimestamp;
@@ -2796,7 +2955,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             },
             eventAllow: function (dropInfo, draggedEvent) {
                 const props = draggedEvent.extendedProps || {};
-                if (!props.isEditable || props.isPaid) {
+                if (!props.isEditable || (props.eventKind === 'cita' && props.isPaid)) {
                     return false;
                 }
 
@@ -2892,7 +3051,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             eventDrop: function (info) {
                 const event = info.event;
                 const props = event.extendedProps || {};
-                if (props.eventKind !== 'cita' || !props.entityId) {
+                if ((props.eventKind !== 'cita' && props.eventKind !== 'reunion') || !props.entityId) {
                     info.revert();
                     return;
                 }
@@ -2905,6 +3064,39 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 }
 
                 const previousStart = info.oldEvent && info.oldEvent.start ? new Date(info.oldEvent.start) : null;
+
+                if (props.eventKind === 'reunion') {
+                    confirmMoveWithModal(event, previousStart, newStart)
+                        .then(function (finalStart) {
+                            if (!finalStart) {
+                                info.revert();
+                                return null;
+                            }
+                            return moveMeetingEvent(event, finalStart);
+                        })
+                        .then(function (result) {
+                            if (!result) {
+                                return;
+                            }
+                            event.setStart(result.start);
+                            event.setEnd(result.end);
+                            event.setExtendedProp('programado', result.start.toISOString());
+                            event.setExtendedProp('termina', result.end.toISOString());
+                            event.setExtendedProp('startTimestamp', result.start.getTime());
+                            event.setExtendedProp('endTimestamp', result.end.getTime());
+                            loadMeetingsTable();
+                            if (selectedEventId === event.id) {
+                                updateDetail(event);
+                            }
+                            showTemporaryAlert('Reunión movida correctamente.', 'success');
+                        })
+                        .catch(function (error) {
+                            console.error(error);
+                            info.revert();
+                            showAlert(error.message || 'No se pudo mover la reunión.', 'danger');
+                        });
+                    return;
+                }
 
                 confirmMoveWithModal(event, previousStart, newStart)
                     .then(function (finalStart) {

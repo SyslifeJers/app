@@ -34,7 +34,7 @@ if ($_SESSION['token'] !== $db_token) {
  $ROL_PRACTICANTE = 6;
  $esPracticante = ($rol === $ROL_PRACTICANTE);
 
- if ($esPracticante) {
+  if ($esPracticante) {
       $requestUri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
       $path = (string) (parse_url($requestUri, PHP_URL_PATH) ?? '');
       $permiteCalendario = $path !== '' && substr($path, -strlen('/Citas/calendario.php')) === '/Citas/calendario.php';
@@ -46,6 +46,36 @@ if ($_SESSION['token'] !== $db_token) {
           exit();
       }
    }
+
+  $fraseDiaria = '';
+  $usuarioSesionId = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
+  $indiceDia = (int) floor(time() / 86400);
+
+  $rutaFrasesGenerales = __DIR__ . '/../data/frases_diarias.json';
+  if (is_file($rutaFrasesGenerales)) {
+      $contenidoFrases = json_decode((string) file_get_contents($rutaFrasesGenerales), true);
+      if (is_array($contenidoFrases) && count($contenidoFrases) > 0) {
+          $frasesValidas = array_values(array_filter($contenidoFrases, static function ($frase) {
+              return is_string($frase) && trim($frase) !== '';
+          }));
+          if (count($frasesValidas) > 0) {
+              $fraseDiaria = trim((string) $frasesValidas[$indiceDia % count($frasesValidas)]);
+          }
+      }
+  }
+
+  $rutaFrasesEspeciales = __DIR__ . '/../data/frases_usuarios_especiales.json';
+  if ($usuarioSesionId > 0 && is_file($rutaFrasesEspeciales)) {
+      $configEspecial = json_decode((string) file_get_contents($rutaFrasesEspeciales), true);
+      $usuariosEspeciales = isset($configEspecial['usuarios']) && is_array($configEspecial['usuarios']) ? array_map('intval', $configEspecial['usuarios']) : [];
+      $frasesEspeciales = isset($configEspecial['frases']) && is_array($configEspecial['frases']) ? array_values(array_filter($configEspecial['frases'], static function ($frase) {
+          return is_string($frase) && trim($frase) !== '';
+      })) : [];
+
+      if (in_array($usuarioSesionId, $usuariosEspeciales, true) && count($frasesEspeciales) > 0) {
+          $fraseDiaria = trim((string) $frasesEspeciales[$indiceDia % count($frasesEspeciales)]);
+      }
+  }
 
 // Badge: citas de diagnostico para hoy.
 $diagnosticoCitasHoy = 0;
@@ -141,6 +171,59 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
         line-height: 1;
         font-weight: 700;
       }
+
+      .sidebar_minimize .sidebar .sidebar-wrapper .nav-item > a {
+        justify-content: center;
+        padding-left: 0;
+        padding-right: 0;
+        font-size: 0;
+        line-height: 1;
+      }
+
+      .sidebar_minimize .sidebar .sidebar-wrapper .nav-item > a i {
+        width: 75px;
+        margin-right: 0 !important;
+        font-size: 17px;
+        line-height: 42px;
+      }
+
+      .sidebar_minimize.sidebar_minimize_hover .sidebar .sidebar-wrapper .nav-item > a {
+        justify-content: flex-start;
+        padding: 6px 25px;
+        font-size: 1rem;
+        line-height: inherit;
+      }
+
+      .sidebar_minimize.sidebar_minimize_hover .sidebar .sidebar-wrapper .nav-item > a i {
+        width: 25px;
+        margin-right: 15px !important;
+        font-size: 16px;
+        line-height: 30px;
+      }
+
+      .daily-phrase {
+        max-width: min(520px, 48vw);
+        color: #475569;
+        font-size: 13px;
+        line-height: 1.35;
+      }
+
+      .daily-phrase .daily-phrase-icon {
+        width: 30px;
+        height: 30px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        color: #2563eb;
+        background: rgba(37, 99, 235, 0.1);
+      }
+
+      @media (max-width: 991.98px) {
+        .daily-phrase {
+          display: none !important;
+        }
+      }
     </style>
 
   </head>
@@ -188,13 +271,15 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
         <a class="nav-link" href="/Clientes/index.php"><i class="fas fa-users"></i>Clientes <span class="sr-only"></span></a>
       </li>
       <?php } ?>
-       <?php if ($rol == 3 || $rol == 5) { ?>
+       <?php if ($rol == 1 || $rol == 3 || $rol == 5) { ?>
             <li class="nav-item ">
-         <a class="nav-link" href="/Usuarios/index.php"><i class="fas fa-user"></i>Usuarios <span class="sr-only"></span></a>
-       </li>
-       <?php } elseif ($rol == 1) { ?>
-            <li class="nav-item ">
-         <a class="nav-link" href="/Usuarios/index.php"><i class="fas fa-user"></i>Practicantes <span class="sr-only"></span></a>
+         <a class="nav-link" data-bs-toggle="collapse" href="#usuariosMenu" role="button" aria-expanded="false" aria-controls="usuariosMenu"><i class="fas fa-user"></i>Usuarios <span class="caret"></span></a>
+         <div class="collapse" id="usuariosMenu">
+           <ul class="nav nav-collapse">
+             <li><a href="/Usuarios/index.php"><span class="sub-item"><?php echo ($rol == 1) ? 'Practicantes' : 'General'; ?></span></a></li>
+             <li><a href="/Usuarios/psicologos.php"><span class="sub-item">Psicólogos</span></a></li>
+           </ul>
+         </div>
        </li>
        <?php } ?>
 
@@ -298,6 +383,12 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
           >
             <div class="container-fluid">
 
+              <?php if ($fraseDiaria !== '') { ?>
+              <div class="daily-phrase d-none d-lg-flex align-items-center gap-2 me-3">
+                <span class="daily-phrase-icon"><i class="fas fa-quote-left"></i></span>
+                <span><strong>Frase del día:</strong> <?php echo htmlspecialchars($fraseDiaria, ENT_QUOTES, 'UTF-8'); ?></span>
+              </div>
+              <?php } ?>
 
               <ul class="navbar-nav topbar-nav ms-md-auto align-items-center">
 
