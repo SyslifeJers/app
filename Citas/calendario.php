@@ -418,6 +418,9 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         <button type="button" class="btn btn-outline-primary " id="open-meeting-modal">
                             Agregar reunión
                         </button>
+                        <button type="button" class="btn btn-outline-success" id="open-patient-availability-modal">
+                            Disponibilidad por paciente
+                        </button>
                     </div>
                     <?php } ?>
         
@@ -720,6 +723,37 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
         </div>
     </div>
 </div>
+
+<div class="modal fade" id="patientAvailabilityModal" tabindex="-1" aria-labelledby="patientAvailabilityModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="patientAvailabilityModalLabel">Disponibilidad por paciente</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label for="patientAvailabilitySearch" class="form-label">Buscar paciente</label>
+                        <input type="text" class="form-control" id="patientAvailabilitySearch" placeholder="Nombre del paciente o tutor">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="patientAvailabilityPatient" class="form-label">Seleccionar paciente</label>
+                        <select class="form-select" id="patientAvailabilityPatient" size="8"></select>
+                    </div>
+                </div>
+                <div class="alert alert-info mt-3 mb-0" id="patientAvailabilitySummary">
+                    Selecciona un paciente para consultar su última cita y próximos horarios disponibles.
+                </div>
+                <ul class="list-group list-group-flush mt-3 d-none" id="patientAvailabilitySlots"></ul>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-primary" id="findPatientAvailabilityBtn">Buscar disponibilidad</button>
+            </div>
+        </div>
+    </div>
+</div>
 <?php } ?>
 
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js"></script>
@@ -781,9 +815,22 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
         const meetingStartInput = document.getElementById('meetingStart');
         const meetingEndInput = document.getElementById('meetingEnd');
         const meetingForm = document.getElementById('meetingForm');
+        const meetingRecurrenceSelect = document.getElementById('meetingRecurrence');
+        const meetingRecurrenceFields = document.getElementById('meetingRecurrenceFields');
+        const meetingRecurrenceIntervalInput = document.getElementById('meetingRecurrenceInterval');
+        const meetingRecurrenceEndInput = document.getElementById('meetingRecurrenceEnd');
+        const openPatientAvailabilityModalButton = document.getElementById('open-patient-availability-modal');
+        const patientAvailabilityModalElement = document.getElementById('patientAvailabilityModal');
+        const patientAvailabilitySearchInput = document.getElementById('patientAvailabilitySearch');
+        const patientAvailabilityPatientSelect = document.getElementById('patientAvailabilityPatient');
+        const patientAvailabilitySummary = document.getElementById('patientAvailabilitySummary');
+        const patientAvailabilitySlots = document.getElementById('patientAvailabilitySlots');
+        const findPatientAvailabilityButton = document.getElementById('findPatientAvailabilityBtn');
         let meetingModal = null;
         let recurringReservationModal = null;
+        let patientAvailabilityModal = null;
         let meetingsDataTable = null;
+        let calendarPatients = [];
 
         function getPsychologistDisplayName(value) {
             if (typeof value !== 'string') {
@@ -1271,6 +1318,418 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             availableSlotsMessage.classList.add('text-success');
         }
 
+        function setPatientAvailabilityMessage(message, tone) {
+            if (!patientAvailabilitySummary) {
+                return;
+            }
+
+            patientAvailabilitySummary.textContent = message;
+            patientAvailabilitySummary.classList.remove('alert-info', 'alert-success', 'alert-warning', 'alert-danger');
+            patientAvailabilitySummary.classList.add(tone ? 'alert-' + tone : 'alert-info');
+
+            if (patientAvailabilitySlots) {
+                patientAvailabilitySlots.innerHTML = '';
+                patientAvailabilitySlots.classList.add('d-none');
+            }
+        }
+
+        function renderPatientOptions(filterValue) {
+            if (!patientAvailabilityPatientSelect) {
+                return;
+            }
+
+            const normalizedFilter = typeof filterValue === 'string' ? filterValue.trim().toLowerCase() : '';
+            patientAvailabilityPatientSelect.innerHTML = '';
+
+            calendarPatients
+                .filter(function (patient) {
+                    if (!normalizedFilter) {
+                        return true;
+                    }
+
+                    return String(patient.name || '').toLowerCase().indexOf(normalizedFilter) !== -1;
+                })
+                .slice(0, 80)
+                .forEach(function (patient) {
+                    const option = document.createElement('option');
+                    option.value = patient.id;
+                    option.textContent = patient.name || 'Paciente sin nombre';
+                    patientAvailabilityPatientSelect.appendChild(option);
+                });
+        }
+
+        function ensurePatientAvailabilityModal() {
+            if (!patientAvailabilityModalElement) {
+                return null;
+            }
+
+            if (!patientAvailabilityModal) {
+                if (typeof bootstrap === 'undefined' || !bootstrap.Modal) {
+                    return null;
+                }
+                patientAvailabilityModal = new bootstrap.Modal(patientAvailabilityModalElement);
+            }
+
+            return patientAvailabilityModal;
+        }
+
+        function openPatientAvailabilityModal() {
+            const modal = ensurePatientAvailabilityModal();
+            if (!modal) {
+                showAlert('No se pudo abrir la ventana de disponibilidad.', 'danger');
+                return;
+            }
+
+            if (patientAvailabilitySearchInput) {
+                patientAvailabilitySearchInput.value = '';
+            }
+            renderPatientOptions('');
+            setPatientAvailabilityMessage('Selecciona un paciente para consultar su última cita y próximos horarios disponibles.', 'info');
+            modal.show();
+        }
+
+        function getAvailabilityWorkdayHours(dayOfWeek) {
+            if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+                return { start: 12, end: 19 };
+            }
+
+            if (dayOfWeek === 6) {
+                return { start: 9, end: 14 };
+            }
+
+            return null;
+        }
+
+        function buildDateRangeForAvailability(startDate, daysAhead) {
+            const year = startDate.getFullYear();
+            const monthIndex = startDate.getMonth();
+            const day = startDate.getDate();
+            const endDate = new Date(year, monthIndex, day + daysAhead);
+            const startOffset = getMexicoOffsetSuffix(year, monthIndex, day);
+            const endOffset = getMexicoOffsetSuffix(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+
+            return {
+                start: buildDateTimeString(year, monthIndex, day, 0, 0, 0, startOffset),
+                end: buildDateTimeString(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 0, 0, 0, endOffset)
+            };
+        }
+
+        function rangesOverlap(startA, endA, startB, endB) {
+            return startA < endB && startB < endA;
+        }
+
+        function findAvailableSlotsForPatient(cita, events) {
+            const durationMinutes = Math.max(1, Number.parseInt(cita.tiempo, 10) || 60);
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const slots = [];
+
+            for (let dayOffset = 0; dayOffset < 21 && slots.length < 30; dayOffset++) {
+                const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() + dayOffset);
+                const dayOfWeek = day.getDay() === 0 ? 7 : day.getDay();
+                const schedule = getAvailabilityWorkdayHours(dayOfWeek);
+
+                if (!schedule) {
+                    continue;
+                }
+
+                for (let hour = schedule.start; hour < schedule.end; hour++) {
+                    const slotStart = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, 0, 0, 0);
+                    const slotEnd = new Date(slotStart.getTime() + durationMinutes * 60000);
+                    const scheduleEnd = new Date(day.getFullYear(), day.getMonth(), day.getDate(), schedule.end, 0, 0, 0);
+
+                    if (slotStart < now || slotEnd > scheduleEnd) {
+                        continue;
+                    }
+
+                    const hasConflict = events.some(function (event) {
+                        if (!event || event.estatus === 'Cancelada' || event.bloquea_agenda === false || !event.programado) {
+                            return false;
+                        }
+
+                        const eventStart = new Date(event.programado);
+                        const eventEnd = event.termina ? new Date(event.termina) : new Date(eventStart.getTime() + 60 * 60000);
+                        if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) {
+                            return false;
+                        }
+
+                        return rangesOverlap(slotStart.getTime(), slotEnd.getTime(), eventStart.getTime(), eventEnd.getTime());
+                    });
+
+                    if (!hasConflict) {
+                        slots.push({ start: slotStart, end: slotEnd });
+                    }
+                }
+            }
+
+            return slots;
+        }
+
+        function toDatetimeLocalValue(date) {
+            if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+                return '';
+            }
+
+            return date.getFullYear() + '-' +
+                padNumber(date.getMonth() + 1, 2) + '-' +
+                padNumber(date.getDate(), 2) + 'T' +
+                padNumber(date.getHours(), 2) + ':' +
+                padNumber(date.getMinutes(), 2);
+        }
+
+        function isSameLocalDay(firstDate, secondDate) {
+            return firstDate instanceof Date && secondDate instanceof Date &&
+                !Number.isNaN(firstDate.getTime()) && !Number.isNaN(secondDate.getTime()) &&
+                firstDate.getFullYear() === secondDate.getFullYear() &&
+                firstDate.getMonth() === secondDate.getMonth() &&
+                firstDate.getDate() === secondDate.getDate();
+        }
+
+        function findPatientAppointmentSameDay(patientEvents, cita, slotStart) {
+            if (!Array.isArray(patientEvents)) {
+                return null;
+            }
+
+            return patientEvents.find(function (event) {
+                if (!event || event.event_kind !== 'cita' || event.estatus === 'Cancelada' || !event.programado) {
+                    return false;
+                }
+
+                if (String(event.paciente_id || '') !== String(cita.paciente_id || '')) {
+                    return false;
+                }
+
+                const eventStart = new Date(event.programado);
+                return isSameLocalDay(eventStart, slotStart);
+            }) || null;
+        }
+
+        function redirectToCreatePrefilledCita(cita, slotStart) {
+            const params = new URLSearchParams({
+                prefill_cita: '1',
+                paciente_id: cita.paciente_id || '',
+                psicologo_id: cita.psicologo_id || '',
+                fecha: toDatetimeLocalValue(slotStart),
+                tiempo: cita.tiempo || '60',
+                tipo: cita.tipo || 'Cita'
+            });
+
+            window.location.href = '../index.php?' + params.toString();
+        }
+
+        function cancelAppointmentThenRedirect(previousAppointment, cita, slotStart) {
+            const params = new URLSearchParams();
+            params.append('citaId', previousAppointment.entity_id || '');
+            params.append('estatus', '1');
+
+            fetch('../cancelar.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                credentials: 'same-origin',
+                body: params.toString()
+            })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        return null;
+                    }).then(function (data) {
+                        if (!response.ok || !data || data.success !== true) {
+                            throw new Error(data && data.message ? data.message : 'No se pudo cancelar la cita anterior.');
+                        }
+                    });
+                })
+                .then(function () {
+                    redirectToCreatePrefilledCita(cita, slotStart);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No se pudo cancelar la cita anterior.', 'danger');
+                });
+        }
+
+        function selectPatientAvailabilitySlot(cita, slot, patientEvents) {
+            const previousAppointment = findPatientAppointmentSameDay(patientEvents, cita, slot.start);
+
+            if (!previousAppointment) {
+                redirectToCreatePrefilledCita(cita, slot.start);
+                return;
+            }
+
+            const previousDate = formatDateTimeForTable(previousAppointment.programado);
+            const shouldCancelPrevious = window.confirm('El paciente ya tiene una cita el mismo día (' + previousDate + '). ¿Deseas cancelar esa cita anterior antes de crear la nueva?');
+
+            if (shouldCancelPrevious) {
+                cancelAppointmentThenRedirect(previousAppointment, cita, slot.start);
+                return;
+            }
+
+            redirectToCreatePrefilledCita(cita, slot.start);
+        }
+
+        function renderPatientAvailabilitySlots(slots, cita, patientEvents) {
+            if (!patientAvailabilitySlots) {
+                return;
+            }
+
+            patientAvailabilitySlots.innerHTML = '';
+            patientAvailabilitySlots.classList.remove('d-none');
+
+            const dayNameFormatter = new Intl.DateTimeFormat('es-MX', {
+                weekday: 'long'
+            });
+            const dayDateFormatter = new Intl.DateTimeFormat('es-MX', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric'
+            });
+
+            function formatHourRange(date) {
+                return new Intl.DateTimeFormat('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                }).format(date);
+            }
+
+            slots.forEach(function (slot) {
+                const listItem = document.createElement('li');
+                listItem.className = 'list-group-item d-flex justify-content-between align-items-center gap-3 flex-wrap';
+
+                const textWrapper = document.createElement('div');
+
+                const dayLabel = document.createElement('div');
+                dayLabel.className = 'fw-semibold';
+                const dayName = dayNameFormatter.format(slot.start);
+                dayLabel.textContent = dayName.charAt(0).toUpperCase() + dayName.slice(1) + ', ' + dayDateFormatter.format(slot.start);
+
+                const label = document.createElement('span');
+                label.className = 'text-success fw-bold';
+                label.textContent = 'Disponible de ' + formatHourRange(slot.start) + ' a ' + formatHourRange(slot.end);
+
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-success rounded-pill';
+                badge.textContent = 'Disponible';
+
+                const selectButton = document.createElement('button');
+                selectButton.type = 'button';
+                selectButton.className = 'btn btn-sm btn-success';
+                selectButton.textContent = 'Seleccionar';
+                selectButton.addEventListener('click', function () {
+                    selectPatientAvailabilitySlot(cita, slot, patientEvents);
+                });
+
+                textWrapper.appendChild(dayLabel);
+                textWrapper.appendChild(label);
+                listItem.appendChild(textWrapper);
+
+                const actions = document.createElement('div');
+                actions.className = 'd-flex align-items-center gap-2';
+                actions.appendChild(badge);
+                actions.appendChild(selectButton);
+                listItem.appendChild(actions);
+                patientAvailabilitySlots.appendChild(listItem);
+            });
+        }
+
+        function findPatientAvailability() {
+            const pacienteId = patientAvailabilityPatientSelect ? patientAvailabilityPatientSelect.value : '';
+            if (!pacienteId) {
+                setPatientAvailabilityMessage('Selecciona un paciente para consultar disponibilidad.', 'warning');
+                return;
+            }
+
+            setPatientAvailabilityMessage('Consultando última cita y disponibilidad...', 'info');
+            if (findPatientAvailabilityButton) {
+                findPatientAvailabilityButton.disabled = true;
+            }
+
+            fetch('../api/paciente_ultima_cita.php?paciente_id=' + encodeURIComponent(pacienteId), { credentials: 'same-origin' })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        return null;
+                    }).then(function (data) {
+                        if (!response.ok || !data || data.success !== true) {
+                            throw new Error(data && data.message ? data.message : 'No se pudo consultar la última cita.');
+                        }
+
+                        return data.cita;
+                    });
+                })
+                .then(function (cita) {
+                    const range = buildDateRangeForAvailability(new Date(), 22);
+                    const psychologistParams = new URLSearchParams({
+                        start: range.start,
+                        end: range.end,
+                        psicologo_id: cita.psicologo_id
+                    });
+                    const patientParams = new URLSearchParams({
+                        start: range.start,
+                        end: range.end,
+                        paciente: cita.paciente || ''
+                    });
+
+                    return Promise.all([
+                        fetch('../api/citas_calendario.php?' + psychologistParams.toString(), { credentials: 'same-origin' }),
+                        fetch('../api/citas_calendario.php?' + patientParams.toString(), { credentials: 'same-origin' })
+                    ]).then(function (responses) {
+                        return Promise.all(responses.map(function (response) {
+                            return response.json().catch(function () {
+                                return null;
+                            }).then(function (payload) {
+                                if (!response.ok || !payload || !Array.isArray(payload.data)) {
+                                    throw new Error('No se pudo consultar la disponibilidad.');
+                                }
+
+                                return payload.data;
+                            });
+                        }));
+                    }).then(function (eventGroups) {
+                        const eventMap = new Map();
+                        const patientEvents = eventGroups[1].filter(function (event) {
+                            return event && String(event.paciente_id || '') === String(cita.paciente_id || '');
+                        });
+
+                        eventGroups.forEach(function (events, groupIndex) {
+                            events.forEach(function (event) {
+                                if (groupIndex === 1 && event && event.event_kind === 'reunion') {
+                                    return;
+                                }
+
+                                if (event && event.id) {
+                                    eventMap.set(event.id, event);
+                                }
+                            });
+                        });
+
+                        return { cita: cita, events: Array.from(eventMap.values()), patientEvents: patientEvents };
+                    });
+                })
+                .then(function (result) {
+                    const slots = findAvailableSlotsForPatient(result.cita, result.events);
+                    const lastDate = result.cita.programado ? formatDateTimeForTable(result.cita.programado) : 'Sin registro';
+                    const summary = 'Última cita: ' + lastDate + ' con ' + (result.cita.psicologo || 'psicóloga sin registro') + '. Se sugieren horarios de ' + result.cita.tiempo + ' min.';
+
+                    if (slots.length === 0) {
+                        setPatientAvailabilityMessage(summary + ' No se encontraron horarios disponibles en los próximos 21 días.', 'warning');
+                        return;
+                    }
+
+                    setPatientAvailabilityMessage(summary, 'success');
+                    renderPatientAvailabilitySlots(slots, result.cita, result.patientEvents);
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    setPatientAvailabilityMessage(error.message || 'No se pudo consultar la disponibilidad.', 'danger');
+                })
+                .finally(function () {
+                    if (findPatientAvailabilityButton) {
+                        findPatientAvailabilityButton.disabled = false;
+                    }
+                });
+        }
+
         function loadPsychologists() {
             if (!psychologistSelect && !meetingParticipantsSelect && !recurringReservationPsychologistSelect) {
                 return;
@@ -1333,7 +1792,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
         }
 
         function loadPatients() {
-            if (!recurringReservationPatientSelect) {
+            if (!recurringReservationPatientSelect && !patientAvailabilityPatientSelect) {
                 return;
             }
 
@@ -1349,17 +1808,28 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         return;
                     }
 
-                    recurringReservationPatientSelect.innerHTML = '<option value="">Selecciona un paciente</option>';
+                    calendarPatients = payload.filter(function (item) {
+                        return item && item.id;
+                    });
+
+                    if (recurringReservationPatientSelect) {
+                        recurringReservationPatientSelect.innerHTML = '<option value="">Selecciona un paciente</option>';
+                    }
+
                     payload.forEach(function (item) {
                         if (!item || !item.id) {
                             return;
                         }
 
-                        const option = document.createElement('option');
-                        option.value = item.id;
-                        option.textContent = item.name || 'Paciente sin nombre';
-                        recurringReservationPatientSelect.appendChild(option);
+                        if (recurringReservationPatientSelect) {
+                            const option = document.createElement('option');
+                            option.value = item.id;
+                            option.textContent = item.name || 'Paciente sin nombre';
+                            recurringReservationPatientSelect.appendChild(option);
+                        }
                     });
+
+                    renderPatientOptions('');
                 })
                 .catch(function (error) {
                     console.error(error);
@@ -1536,6 +2006,26 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             });
         }
 
+        function syncMeetingRecurrenceFields() {
+            if (!meetingRecurrenceSelect || !meetingRecurrenceFields) {
+                return;
+            }
+
+            const value = meetingRecurrenceSelect.value || 'none';
+            meetingRecurrenceFields.classList.toggle('d-none', value === 'none');
+            if (meetingParticipantsSelect) {
+                meetingParticipantsSelect.disabled = value === 'anual_aviso';
+            }
+        }
+
+        function getDatePartFromDateTimeLocal(value) {
+            return typeof value === 'string' && value.length >= 10 ? value.substring(0, 10) : '';
+        }
+
+        function getTimePartFromDateTimeLocal(value) {
+            return typeof value === 'string' && value.length >= 16 ? value.substring(11, 16) : '';
+        }
+
         function openMeetingModal() {
             if (!meetingModalElement || typeof bootstrap === 'undefined' || !bootstrap.Modal) {
                 showAlert('No se pudo abrir el formulario de reunión.', 'danger');
@@ -1549,6 +2039,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             if (meetingForm) {
                 meetingForm.reset();
             }
+
+            syncMeetingRecurrenceFields();
 
             meetingModal.show();
         }
@@ -1658,31 +2150,48 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             const inicio = meetingStartInput ? meetingStartInput.value : '';
             const fin = meetingEndInput ? meetingEndInput.value : '';
             const psicologos = getSelectedMeetingParticipants();
+            const frecuencia = meetingRecurrenceSelect ? meetingRecurrenceSelect.value : 'none';
 
-            if (!titulo || !inicio || !fin || psicologos.length === 0) {
+            if (!titulo || !inicio || !fin) {
+                showAlert('Completa título, fecha inicio y fecha fin.', 'warning');
+                return;
+            }
+
+            if (frecuencia !== 'anual_aviso' && psicologos.length === 0) {
                 showAlert('Completa título, fecha inicio, fecha fin y al menos una psicóloga.', 'warning');
                 return;
             }
-            console.log(JSON.stringify({
+
+            const isRecurringMeeting = frecuencia && frecuencia !== 'none';
+            const endpoint = isRecurringMeeting ? '../api/reuniones_recurrentes.php' : '../api/reuniones.php';
+            const payload = isRecurringMeeting
+                ? {
+                    titulo: titulo,
+                    descripcion: descripcion,
+                    fecha_inicio: getDatePartFromDateTimeLocal(inicio),
+                    fecha_fin: meetingRecurrenceEndInput && meetingRecurrenceEndInput.value ? meetingRecurrenceEndInput.value : null,
+                    hora_inicio: getTimePartFromDateTimeLocal(inicio),
+                    hora_fin: getTimePartFromDateTimeLocal(fin),
+                    frecuencia: frecuencia,
+                    intervalo: meetingRecurrenceIntervalInput ? Number.parseInt(meetingRecurrenceIntervalInput.value, 10) || 1 : 1,
+                    bloquea_agenda: frecuencia !== 'anual_aviso',
+                    psicologos: frecuencia === 'anual_aviso' ? [] : psicologos
+                }
+                : {
                     titulo: titulo,
                     descripcion: descripcion,
                     inicio: inicio,
                     fin: fin,
                     psicologos: psicologos
-                }));
-            fetch('../api/reuniones.php', {
+                };
+
+            fetch(endpoint, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({
-                    titulo: titulo,
-                    descripcion: descripcion,
-                    inicio: inicio,
-                    fin: fin,
-                    psicologos: psicologos
-                })
+                body: JSON.stringify(payload)
             })
                 .then(function (response) {
                     return response.json().then(function (data) {
@@ -1698,7 +2207,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         meetingModal.hide();
                     }
 
-                    showTemporaryAlert('Reunión guardada correctamente.', 'success');
+                    showTemporaryAlert(isRecurringMeeting ? 'Reunión recurrente guardada correctamente.' : 'Reunión guardada correctamente.', 'success');
                     loadMeetingsTable();
                     calendar.refetchEvents();
                 })
@@ -1768,7 +2277,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     const occupiedHours = new Set();
 
                     payload.data.forEach(function (item) {
-                        if (!item || !item.programado || item.estatus === 'Cancelada') {
+                        if (!item || !item.programado || item.estatus === 'Cancelada' || item.bloquea_agenda === false) {
                             return;
                         }
 
@@ -1934,6 +2443,16 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 .replace(/'/g, '&#039;');
         }
 
+        function truncatePatientName(name) {
+            const value = name == null ? '' : String(name);
+            return value.length > 20 ? value.substring(0, 20) + '...' : value;
+        }
+
+        function truncateCalendarLabel(value) {
+            const label = value == null ? '' : String(value);
+            return label.length > 20 ? label.substring(0, 20) + '...' : label;
+        }
+
         function hideClickPopup() {
             if (!clickPopup) {
                 return;
@@ -1962,7 +2481,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
         function buildPopupHtml(event) {
             const props = event && event.extendedProps ? event.extendedProps : {};
-            const isMeeting = props.eventKind === 'reunion';
+            const isMeeting = props.eventKind === 'reunion' || props.eventKind === 'reunion_recurrente' || props.eventKind === 'aviso_anual';
+            const isRecurringMeeting = props.eventKind === 'reunion_recurrente' || props.eventKind === 'aviso_anual';
             const isRecurringReservation = props.eventKind === 'reservacion_continua';
             const paciente = isMeeting ? (props.tipo || 'Reunión interna') : (props.paciente || 'Sin registro');
             const psicologo = props.psicologo || 'Sin registro';
@@ -1993,8 +2513,10 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 '<div class="popup-actions">' +
                
                 (USER_CAN_EDIT && !isMeeting && !isRecurringReservation ? '<button type="button" class="popup-btn primary" data-calendar-action="reprogram">Reprogramar</button>' : '') +
-                (USER_CAN_EDIT && isMeeting ? '<button type="button" class="popup-btn primary" data-calendar-action="move-meeting">Mover</button>' : '') +
-                (USER_CAN_EDIT ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel">Cancelar</button>' : '') +
+                (USER_CAN_EDIT && isMeeting && props.eventKind !== 'aviso_anual' ? '<button type="button" class="popup-btn primary" data-calendar-action="move-meeting">Mover</button>' : '') +
+                (USER_CAN_EDIT && isRecurringMeeting ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel-recurring-meeting-occurrence">Cancelar este día</button>' : '') +
+                (USER_CAN_EDIT && isRecurringMeeting ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel-recurring-meeting-series">Cancelar recurrencia</button>' : '') +
+                (USER_CAN_EDIT && !isRecurringMeeting ? '<button type="button" class="popup-btn danger" data-calendar-action="cancel">Cancelar</button>' : '') +
                 '<button type="button" class="popup-btn" data-calendar-action="close">Cerrar</button>' +
                 '</div>'
             );
@@ -2451,6 +2973,53 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 });
         }
 
+        function sendCancelRecurringMeetingRequest(event, scope) {
+            const props = event && event.extendedProps ? event.extendedProps : {};
+            if (!props.entityId) {
+                showAlert('No se pudo identificar la reunión recurrente.', 'warning');
+                return;
+            }
+
+            const cancelOccurrence = scope === 'occurrence';
+            const message = cancelOccurrence
+                ? '¿Deseas cancelar solo esta ocurrencia?'
+                : '¿Deseas cancelar toda la recurrencia?';
+            if (!window.confirm(message)) {
+                return;
+            }
+
+            const params = new URLSearchParams({
+                id: props.entityId,
+                scope: cancelOccurrence ? 'occurrence' : 'series'
+            });
+            if (cancelOccurrence) {
+                params.append('date', props.occurrenceDate || (event.start ? toSqlDateTime(event.start).substring(0, 10) : ''));
+            }
+
+            fetch('../api/reuniones_recurrentes.php?' + params.toString(), {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            })
+                .then(function (response) {
+                    return response.json().catch(function () {
+                        return null;
+                    }).then(function (data) {
+                        if (!response.ok || !data || data.success !== true) {
+                            throw new Error((data && data.message) || 'No se pudo cancelar la reunión recurrente.');
+                        }
+                        return data;
+                    });
+                })
+                .then(function (data) {
+                    showTemporaryAlert(data.message || 'Reunión recurrente cancelada correctamente.', 'success');
+                    calendar.refetchEvents();
+                })
+                .catch(function (error) {
+                    console.error(error);
+                    showAlert(error.message || 'No se pudo cancelar la reunión recurrente.', 'danger');
+                });
+        }
+
         function moveMeetingEvent(event, finalStart) {
             const props = event && event.extendedProps ? event.extendedProps : {};
             if (!event || !props.entityId || !(finalStart instanceof Date) || Number.isNaN(finalStart.getTime())) {
@@ -2461,17 +3030,26 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             const currentEnd = event.end instanceof Date ? event.end : null;
             const durationMs = currentStart && currentEnd ? Math.max(currentEnd.getTime() - currentStart.getTime(), 1800000) : 3600000;
             const finalEnd = new Date(finalStart.getTime() + durationMs);
+            const isRecurringMeeting = props.eventKind === 'reunion_recurrente';
+            const endpoint = isRecurringMeeting ? '../api/reuniones_recurrentes.php?id=' : '../api/reuniones.php?id=';
+            const body = isRecurringMeeting
+                ? {
+                    hora_inicio: padNumber(finalStart.getHours(), 2) + ':' + padNumber(finalStart.getMinutes(), 2),
+                    hora_fin: padNumber(finalEnd.getHours(), 2) + ':' + padNumber(finalEnd.getMinutes(), 2),
+                    fecha_referencia: finalStart.getFullYear() + '-' + padNumber(finalStart.getMonth() + 1, 2) + '-' + padNumber(finalStart.getDate(), 2)
+                }
+                : {
+                    inicio: toSqlDateTime(finalStart),
+                    fin: toSqlDateTime(finalEnd)
+                };
 
-            return fetch('../api/reuniones.php?id=' + encodeURIComponent(props.entityId), {
+            return fetch(endpoint + encodeURIComponent(props.entityId), {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 credentials: 'same-origin',
-                body: JSON.stringify({
-                    inicio: toSqlDateTime(finalStart),
-                    fin: toSqlDateTime(finalEnd)
-                })
+                body: JSON.stringify(body)
             })
                 .then(function (response) {
                     return response.json().catch(function () {
@@ -2480,7 +3058,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         if (!response.ok || !data || data.success !== true) {
                             throw new Error((data && data.message) || 'No se pudo mover la reunión.');
                         }
-                        return { start: finalStart, end: finalEnd };
+                        return { start: finalStart, end: finalEnd, recurring: isRecurringMeeting };
                     });
                 });
         }
@@ -2508,6 +3086,11 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     if (!result) {
                         return;
                     }
+                    if (result.recurring) {
+                        calendar.refetchEvents();
+                        showTemporaryAlert('Serie recurrente movida correctamente.', 'success');
+                        return;
+                    }
                     event.setStart(result.start);
                     event.setEnd(result.end);
                     event.setExtendedProp('programado', result.start.toISOString());
@@ -2530,7 +3113,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             detailReprogramButton.addEventListener('click', function () {
                 const citaId = detailReprogramButton.dataset.citaId || '';
                 const eventKind = detailReprogramButton.dataset.eventKind || 'cita';
-                if (eventKind === 'reunion') {
+                if (eventKind === 'reunion' || eventKind === 'reunion_recurrente') {
                     const eventId = detailReprogramButton.dataset.eventId || selectedEventId || '';
                     openMoveMeetingModal(eventId ? calendar.getEventById(eventId) : null);
                     return;
@@ -2556,6 +3139,14 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
                 if (eventKind === 'reservacion_continua') {
                     sendCancelRecurringReservationRequest(entityId);
+                } else if (eventKind === 'reunion_recurrente' || eventKind === 'aviso_anual') {
+                    const eventId = detailCancelButton.dataset.eventId || selectedEventId || '';
+                    const selectedEvent = eventId ? calendar.getEventById(eventId) : null;
+                    if (selectedEvent && window.confirm('¿Cancelar solo este día? Presiona Cancelar para cancelar toda la recurrencia.')) {
+                        sendCancelRecurringMeetingRequest(selectedEvent, 'occurrence');
+                    } else if (selectedEvent) {
+                        sendCancelRecurringMeetingRequest(selectedEvent, 'series');
+                    }
                 } else if (eventKind === 'reunion') {
                     sendCancelMeetingRequest(entityId);
                 } else {
@@ -2618,6 +3209,18 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         sendCancelRequest(calendarEvent.extendedProps && calendarEvent.extendedProps.entityId ? calendarEvent.extendedProps.entityId : '');
                     }
                 }
+
+                if (action === 'cancel-recurring-meeting-occurrence') {
+                    hideClickPopup();
+                    sendCancelRecurringMeetingRequest(calendarEvent, 'occurrence');
+                    return;
+                }
+
+                if (action === 'cancel-recurring-meeting-series') {
+                    hideClickPopup();
+                    sendCancelRecurringMeetingRequest(calendarEvent, 'series');
+                    return;
+                }
             });
 
             document.addEventListener('pointerdown', function (event) {
@@ -2644,7 +3247,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
             const props = event.extendedProps || {};
             const eventKind = props.eventKind || 'cita';
-            const isMeeting = eventKind === 'reunion';
+            const isMeeting = eventKind === 'reunion' || eventKind === 'reunion_recurrente' || eventKind === 'aviso_anual';
             const isRecurringReservation = eventKind === 'reservacion_continua';
 
             const reprogramCount = normalizeCount(props.solicitudesReprogramacionPendientes);
@@ -2747,7 +3350,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                 detailReprogramButton.dataset.eventKind = eventKind;
                 detailReprogramButton.dataset.eventId = event.id || '';
                 detailReprogramButton.textContent = isMeeting ? 'Mover reunión' : 'Reprogramar';
-                const editable = USER_CAN_EDIT && !isRecurringReservation && Boolean(props.isEditable) && !isCancelled;
+                const editable = USER_CAN_EDIT && eventKind !== 'aviso_anual' && !isRecurringReservation && Boolean(props.isEditable) && !isCancelled;
                 detailReprogramButton.disabled = !editable || !props.entityId;
                 if (!editable) {
                     helperMessages.push(isMeeting
@@ -2761,6 +3364,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             if (detailCancelButton) {
                 detailCancelButton.dataset.citaId = props.entityId || '';
                 detailCancelButton.dataset.eventKind = eventKind;
+                detailCancelButton.dataset.eventId = event.id || '';
                 detailCancelButton.textContent = isMeeting ? 'Cancelar reunión' : (isRecurringReservation ? 'Cancelar reservación' : 'Cancelar');
                 detailCancelButton.disabled = !USER_CAN_EDIT || !props.entityId || isCancelled;
             }
@@ -2830,10 +3434,23 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     credentials: 'same-origin'
                 })
                     .then(function (response) {
-                        if (!response.ok) {
-                            throw new Error('Respuesta no válida del servidor');
-                        }
-                        return response.json();
+                        return response.text().then(function (text) {
+                            let data = null;
+                            try {
+                                data = JSON.parse(text);
+                            } catch (error) {
+                                const preview = text.replace(/\s+/g, ' ').trim().substring(0, 500);
+                                throw new Error('La API del calendario devolvió HTML/texto en lugar de JSON. HTTP ' + response.status + '. Respuesta: ' + preview);
+                            }
+
+                            if (!response.ok) {
+                                const serverMessage = data && (data.error || data.message) ? (data.error || data.message) : 'Respuesta no válida del servidor';
+                                const debugMessage = data && data.debug ? ' Debug: ' + JSON.stringify(data.debug) : '';
+                                throw new Error(serverMessage + debugMessage);
+                            }
+
+                            return data;
+                        });
                     })
                     .then(function (payload) {
                         if (!payload || !Array.isArray(payload.data)) {
@@ -2846,25 +3463,28 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         const events = payload.data.map(function (item) {
                             const eventKind = item.event_kind === 'reunion'
                                 ? 'reunion'
-                                : (item.event_kind === 'reservacion_continua' ? 'reservacion_continua' : 'cita');
+                                : (item.event_kind === 'reservacion_continua'
+                                    ? 'reservacion_continua'
+                                    : (item.event_kind === 'reunion_recurrente'
+                                        ? 'reunion_recurrente'
+                                        : (item.event_kind === 'aviso_anual' ? 'aviso_anual' : 'cita')));
                             const statusStyle = statusStyles[item.estatus] || defaultStatusStyles;
                             const paciente = item.paciente || 'Sin registro';
                             const psicologo = getPsychologistDisplayName(item.psicologo);
-                            let meetingTitle = item.tipo || 'Reunión interna';
-                            if (meetingTitle.length > 35) {
-                                meetingTitle = meetingTitle.substring(0, 35) + '...';
-                            }
-                            const title = eventKind === 'reunion'
+                            let meetingTitle = truncateCalendarLabel(item.tipo || 'Reunión interna');
+                            const pacienteTitle = truncatePatientName(paciente);
+                            const isMeetingKind = eventKind === 'reunion' || eventKind === 'reunion_recurrente' || eventKind === 'aviso_anual';
+                            const title = isMeetingKind
                                 ? ('Reunión: ' + meetingTitle)
                                 : (eventKind === 'reservacion_continua'
-                                    ? ('Reservación continua: ' + paciente + ' | Psicóloga: ' + psicologo)
-                                    : ('Paciente: ' + paciente + ' | Psicóloga: ' + psicologo));
+                                    ? ('Reservación continua: ' + pacienteTitle + ' | Psicóloga: ' + psicologo)
+                                    : ('Paciente: ' + pacienteTitle + ' | Psicóloga: ' + psicologo));
 
                             const classNames = ['calendar-event'];
                             if (statusStyle.eventClass) {
                                 classNames.push(statusStyle.eventClass);
                             }
-                            if (eventKind === 'reunion') {
+                            if (eventKind === 'reunion' || eventKind === 'reunion_recurrente' || eventKind === 'aviso_anual') {
                                 classNames.push('event-type-reunion');
                             } else if (eventKind === 'reservacion_continua') {
                                 classNames.push('event-type-recurring-reservation');
@@ -2881,7 +3501,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                             const isPaid = isFormaPagoRegistrada(item.forma_pago);
                             const isEditable = USER_CAN_EDIT && hasValidStart && hasValidEnd && (
                                 (eventKind === 'cita' && isEventEditableByPolicy(item.estatus, rawStartTimestamp, rawEndTimestamp, item.forma_pago, todayTimestamp)) ||
-                                (eventKind === 'reunion' && rawStartTimestamp >= todayTimestamp)
+                                ((eventKind === 'reunion' || eventKind === 'reunion_recurrente') && rawStartTimestamp >= todayTimestamp)
                             );
                             const startTimestamp = Number.isNaN(rawStartTimestamp) ? null : rawStartTimestamp;
                             const endTimestamp = Number.isNaN(rawEndTimestamp) ? null : rawEndTimestamp;
@@ -2917,6 +3537,8 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                                     tiempo: item.tiempo,
                                     programado: item.programado,
                                     termina: item.termina,
+                                    occurrenceDate: item.occurrence_date || null,
+                                    bloqueaAgenda: item.bloquea_agenda !== false,
                                     psicologoColor: palette,
                                     psicologoColorHex: psicologoColorHex,
                                     psicologoId: item.psicologo_id || null,
@@ -2947,7 +3569,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     })
                     .catch(function (error) {
                         console.error(error);
-                        showAlert('No se pudieron cargar las citas. Por favor intenta nuevamente.', 'danger');
+                        showAlert(error && error.message ? error.message : 'No se pudieron cargar las citas. Por favor intenta nuevamente.', 'danger');
                         if (typeof failureCallback === 'function') {
                             failureCallback(error);
                         }
@@ -2968,7 +3590,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             },
             eventContent: function (arg) {
                 const eventKind = arg.event.extendedProps && arg.event.extendedProps.eventKind;
-                const isMeeting = eventKind === 'reunion';
+                const isMeeting = eventKind === 'reunion' || eventKind === 'reunion_recurrente' || eventKind === 'aviso_anual';
                 const isRecurringReservation = eventKind === 'reservacion_continua';
                 const content = document.createElement('div');
                 content.classList.add('calendar-event-body');
@@ -2985,15 +3607,12 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
                 const paciente = document.createElement('span');
                 paciente.classList.add('calendar-event-paciente');
-                let meetingLabel = arg.event.extendedProps.tipo || 'Reunión interna';
-                if (meetingLabel.length > 35) {
-                    meetingLabel = meetingLabel.substring(0, 35) + '...';
-                }
+                let meetingLabel = truncateCalendarLabel(arg.event.extendedProps.tipo || 'Reunión interna');
                 paciente.textContent = isMeeting
                     ? meetingLabel
                     : (isRecurringReservation
-                        ? ('Reserva: ' + (arg.event.extendedProps.paciente || 'Sin registro'))
-                        : (arg.event.extendedProps.paciente || 'Sin registro'));
+                        ? ('Reserva: ' + truncatePatientName(arg.event.extendedProps.paciente || 'Sin registro'))
+                        : truncatePatientName(arg.event.extendedProps.paciente || 'Sin registro'));
                 content.appendChild(paciente);
 
                 if (arg.event.extendedProps.psicologo) {
@@ -3051,7 +3670,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             eventDrop: function (info) {
                 const event = info.event;
                 const props = event.extendedProps || {};
-                if ((props.eventKind !== 'cita' && props.eventKind !== 'reunion') || !props.entityId) {
+                if ((props.eventKind !== 'cita' && props.eventKind !== 'reunion' && props.eventKind !== 'reunion_recurrente') || !props.entityId) {
                     info.revert();
                     return;
                 }
@@ -3065,7 +3684,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
 
                 const previousStart = info.oldEvent && info.oldEvent.start ? new Date(info.oldEvent.start) : null;
 
-                if (props.eventKind === 'reunion') {
+                if (props.eventKind === 'reunion' || props.eventKind === 'reunion_recurrente') {
                     confirmMoveWithModal(event, previousStart, newStart)
                         .then(function (finalStart) {
                             if (!finalStart) {
@@ -3076,6 +3695,11 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                         })
                         .then(function (result) {
                             if (!result) {
+                                return;
+                            }
+                            if (result.recurring) {
+                                calendar.refetchEvents();
+                                showTemporaryAlert('Serie recurrente movida correctamente.', 'success');
                                 return;
                             }
                             event.setStart(result.start);
@@ -3327,12 +3951,36 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             openMeetingModalButton.addEventListener('click', openMeetingModal);
         }
 
+        if (openPatientAvailabilityModalButton) {
+            openPatientAvailabilityModalButton.addEventListener('click', openPatientAvailabilityModal);
+        }
+
+        if (patientAvailabilitySearchInput) {
+            patientAvailabilitySearchInput.addEventListener('input', function () {
+                renderPatientOptions(patientAvailabilitySearchInput.value);
+            });
+        }
+
+        if (patientAvailabilityPatientSelect) {
+            patientAvailabilityPatientSelect.addEventListener('change', findPatientAvailability);
+            patientAvailabilityPatientSelect.addEventListener('dblclick', findPatientAvailability);
+        }
+
+        if (findPatientAvailabilityButton) {
+            findPatientAvailabilityButton.addEventListener('click', findPatientAvailability);
+        }
+
         if (openRecurringReservationModalButton) {
             openRecurringReservationModalButton.addEventListener('click', openRecurringReservationModal);
         }
 
         if (saveMeetingButton) {
             saveMeetingButton.addEventListener('click', saveMeeting);
+        }
+
+        if (meetingRecurrenceSelect) {
+            meetingRecurrenceSelect.addEventListener('change', syncMeetingRecurrenceFields);
+            syncMeetingRecurrenceFields();
         }
 
         if (saveRecurringReservationButton) {
@@ -3371,6 +4019,27 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     <div class="mb-3">
                         <label for="meetingEnd" class="form-label">Fin</label>
                         <input type="datetime-local" class="form-control" id="meetingEnd" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="meetingRecurrence" class="form-label">Repetir</label>
+                        <select id="meetingRecurrence" class="form-select">
+                            <option value="none">No se repite</option>
+                            <option value="semanal">Cada semana</option>
+                            <option value="mensual_dia_semana">Cada mes (mismo día de semana)</option>
+                            <option value="anual_aviso">Cada año (aviso/cumpleaños)</option>
+                        </select>
+                        <small class="text-muted">El mensual conserva el patrón, por ejemplo primer lunes del mes. Si no existe, usa el último lunes disponible.</small>
+                    </div>
+                    <div class="row g-3 mb-3 d-none" id="meetingRecurrenceFields">
+                        <div class="col-md-6">
+                            <label for="meetingRecurrenceInterval" class="form-label">Frecuencia</label>
+                            <input type="number" class="form-control" id="meetingRecurrenceInterval" min="1" step="1" value="1">
+                            <small class="text-muted">Ejemplo: 1 = cada semana/mes/año.</small>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="meetingRecurrenceEnd" class="form-label">Termina (opcional)</label>
+                            <input type="date" class="form-control" id="meetingRecurrenceEnd">
+                        </div>
                     </div>
                     <div class="mb-0">
                         <label for="meetingParticipants" class="form-label">Psicólogas participantes</label>

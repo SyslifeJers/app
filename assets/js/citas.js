@@ -1023,11 +1023,90 @@ function updateResumen() {
   aplicarPaqueteSeleccionado();
   revisarCita();
 }
+
+function getCitaPrefillParams() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('prefill_cita') !== '1') {
+    return null;
+  }
+
+  return {
+    pacienteId: params.get('paciente_id') || '',
+    psicologoId: params.get('psicologo_id') || '',
+    fecha: params.get('fecha') || '',
+    tiempo: params.get('tiempo') || '',
+    tipo: params.get('tipo') || ''
+  };
+}
+
+function selectOptionByText(selectElement, textValue) {
+  if (!selectElement || !textValue) {
+    return;
+  }
+
+  const normalizedText = textValue.trim().toLowerCase();
+  for (let index = 0; index < selectElement.options.length; index++) {
+    const option = selectElement.options[index];
+    const optionText = (option.text || '').trim().toLowerCase();
+    if (optionText.indexOf(normalizedText) !== -1) {
+      selectElement.selectedIndex = index;
+      return;
+    }
+  }
+}
+
+function applyCitaPrefillWhenReady(attempt) {
+  const prefill = getCitaPrefillParams();
+  if (!prefill) {
+    return;
+  }
+
+  const currentAttempt = Number.isInteger(attempt) ? attempt : 0;
+  const nameSelect = document.getElementById('nameSelect');
+  const idEmpleado = document.getElementById('idEmpleado');
+  const costosSelect = document.getElementById('costosSelect');
+  const citaDia = document.getElementById('citaDia');
+  const resumenTiempo = document.getElementById('resumenTiempo');
+
+  const listsReady = nameSelect && idEmpleado && costosSelect && nameSelect.options.length > 0 && idEmpleado.options.length > 0 && costosSelect.options.length > 0;
+  if (!listsReady) {
+    if (currentAttempt < 30) {
+      window.setTimeout(function () {
+        applyCitaPrefillWhenReady(currentAttempt + 1);
+      }, 100);
+    }
+    return;
+  }
+
+  if (prefill.pacienteId) {
+    nameSelect.value = prefill.pacienteId;
+  }
+
+  if (prefill.psicologoId) {
+    idEmpleado.value = prefill.psicologoId;
+  }
+
+  if (prefill.tipo) {
+    selectOptionByText(costosSelect, prefill.tipo);
+  }
+
+  if (citaDia && prefill.fecha) {
+    citaDia.value = prefill.fecha;
+  }
+
+  if (resumenTiempo && prefill.tiempo) {
+    resumenTiempo.value = prefill.tiempo;
+  }
+
+  updateResumen();
+}
+
 function loadAll() {
   loadCostos();
   loadNames();
   loadEmpleados();
   loadPaquetes();
+  applyCitaPrefillWhenReady(0);
 
 }
 function loadCostos() {

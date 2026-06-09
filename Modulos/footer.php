@@ -50,6 +50,33 @@
 
     <!-- Kaiadmin JS -->
     <script src="../assets/js/kaiadmin.min.js"></script>
+    <script>
+      (function () {
+        var storageKey = 'cereneSidebarMinimized';
+
+        function saveSidebarState() {
+          var wrapper = document.querySelector('.wrapper');
+
+          if (!wrapper) {
+            return;
+          }
+
+          try {
+            localStorage.setItem(
+              storageKey,
+              wrapper.classList.contains('sidebar_minimize') ? '1' : '0'
+            );
+          } catch (error) {
+          }
+        }
+
+        document.querySelectorAll('.sidenav-toggler, .toggle-sidebar').forEach(function (button) {
+          button.addEventListener('click', function () {
+            window.setTimeout(saveSidebarState, 0);
+          });
+        });
+      })();
+    </script>
 <script src="https://cdn.datatables.net/v/dt/dt-2.0.8/datatables.min.js"></script>
     <!-- Kaiadmin DEMO methods, don't include it in your project! -->
     <script>

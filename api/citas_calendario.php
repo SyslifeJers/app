@@ -1,16 +1,80 @@
 <?php
+ini_set('display_errors', '0');
+error_reporting(E_ALL);
+
 header('Content-Type: application/json; charset=utf-8');
 
 session_start();
 
 require_once __DIR__ . '/../conexion.php';
 
+$calendarResponseSent = false;
+
 function jsonResponse(int $statusCode, array $payload): void
 {
+    global $calendarResponseSent;
+    $calendarResponseSent = true;
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
+
+set_error_handler(static function (int $severity, string $message, string $file, int $line): bool {
+    if (!(error_reporting() & $severity)) {
+        return false;
+    }
+
+    jsonResponse(500, [
+        'error' => 'Error interno del calendario.',
+        'debug' => [
+            'type' => 'php_error',
+            'message' => $message,
+            'file' => $file,
+            'line' => $line,
+        ],
+    ]);
+});
+
+set_exception_handler(static function (Throwable $exception): void {
+    jsonResponse(500, [
+        'error' => 'Excepción interna del calendario.',
+        'debug' => [
+            'type' => get_class($exception),
+            'message' => $exception->getMessage(),
+            'file' => $exception->getFile(),
+            'line' => $exception->getLine(),
+        ],
+    ]);
+});
+
+register_shutdown_function(static function (): void {
+    global $calendarResponseSent;
+    if ($calendarResponseSent) {
+        return;
+    }
+
+    $error = error_get_last();
+    if (!is_array($error)) {
+        return;
+    }
+
+    $fatalTypes = [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR, E_RECOVERABLE_ERROR];
+    if (!in_array((int) ($error['type'] ?? 0), $fatalTypes, true)) {
+        return;
+    }
+
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'error' => 'Error fatal interno del calendario.',
+        'debug' => [
+            'type' => 'fatal_error',
+            'message' => $error['message'] ?? '',
+            'file' => $error['file'] ?? '',
+            'line' => $error['line'] ?? 0,
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+});
 
 if (!isset($_SESSION['id']) || !isset($_SESSION['token'])) {
     jsonResponse(401, ['error' => 'No autenticado.']);
@@ -42,6 +106,38 @@ function normalizarParametro($valor, DateTimeZone $tz, $campo)
 function toLowerUtf8($valor)
 {
     return function_exists('mb_strtolower') ? mb_strtolower($valor, 'UTF-8') : strtolower($valor);
+}
+
+function nthWeekdayOfMonth(int $year, int $month, int $weekday, int $weekNumber, DateTimeZone $timezone): DateTime
+{
+    $date = new DateTime(sprintf('%04d-%02d-01', $year, $month), $timezone);
+    while ((int) $date->format('N') !== $weekday) {
+        $date->modify('+1 day');
+    }
+
+    $candidate = clone $date;
+    $candidate->modify('+' . max(0, $weekNumber - 1) . ' week');
+
+    if ((int) $candidate->format('n') === $month) {
+        return $candidate;
+    }
+
+    $last = new DateTime(sprintf('%04d-%02d-01', $year, $month), $timezone);
+    $last->modify('last day of this month');
+    while ((int) $last->format('N') !== $weekday) {
+        $last->modify('-1 day');
+    }
+    return $last;
+}
+
+function aplicarHora(DateTime $fecha, string $hora): DateTime
+{
+    $horaDt = DateTime::createFromFormat('H:i:s', $hora) ?: DateTime::createFromFormat('H:i', $hora);
+    $resultado = clone $fecha;
+    if ($horaDt instanceof DateTime) {
+        $resultado->setTime((int) $horaDt->format('H'), (int) $horaDt->format('i'), (int) $horaDt->format('s'));
+    }
+    return $resultado;
 }
 
 $timezone = new DateTimeZone('America/Mexico_City');
@@ -112,6 +208,7 @@ if ($pacienteFiltro !== null) {
 }
 
 $sqlCitas = 'SELECT ci.id,
+                 ci.IdNino AS paciente_id,
                  ci.Programado,
                  ci.Tiempo,
                  ci.Tipo,
@@ -139,7 +236,7 @@ $sqlCitas = 'SELECT ci.id,
 
 $stmtCitas = $conn->prepare($sqlCitas);
 if ($stmtCitas === false) {
-    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de citas.']);
+    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de citas.', 'debug' => ['mysqli_error' => $conn->error, 'sql' => $sqlCitas]]);
 }
 
 if ($tiposCita !== '') {
@@ -147,8 +244,9 @@ if ($tiposCita !== '') {
 }
 
 if (!$stmtCitas->execute()) {
+    $errorCitas = $stmtCitas->error;
     $stmtCitas->close();
-    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de citas.']);
+    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de citas.', 'debug' => ['mysqli_error' => $errorCitas]]);
 }
 
 $eventos = [];
@@ -171,6 +269,7 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
         'id' => 'cita-' . (int) $fila['id'],
         'event_kind' => 'cita',
         'entity_id' => (int) $fila['id'],
+        'paciente_id' => (int) $fila['paciente_id'],
         'paciente' => $fila['paciente'],
         'contacto_telefono' => $fila['contacto_telefono'],
         'contacto_correo' => $fila['contacto_correo'],
@@ -242,7 +341,7 @@ $sqlReservaciones = 'SELECT rc.id,
 
 $stmtReservaciones = $conn->prepare($sqlReservaciones);
 if ($stmtReservaciones === false) {
-    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de reservaciones continuas.']);
+    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de reservaciones continuas.', 'debug' => ['mysqli_error' => $conn->error, 'sql' => $sqlReservaciones]]);
 }
 
 if ($tiposReservacion !== '') {
@@ -250,8 +349,9 @@ if ($tiposReservacion !== '') {
 }
 
 if (!$stmtReservaciones->execute()) {
+    $errorReservaciones = $stmtReservaciones->error;
     $stmtReservaciones->close();
-    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de reservaciones continuas.']);
+    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de reservaciones continuas.', 'debug' => ['mysqli_error' => $errorReservaciones]]);
 }
 
 $rangeStartDate = $fechaInicio !== null ? new DateTime(substr($fechaInicio, 0, 10), $timezone) : new DateTime('first day of this month', $timezone);
@@ -314,6 +414,7 @@ while ($fila = $resultadoReservaciones->fetch_assoc()) {
                 'id' => 'reservacion-' . (int) $fila['id'] . '-' . $cursor->format('Ymd'),
                 'event_kind' => 'reservacion_continua',
                 'entity_id' => (int) $fila['id'],
+                'paciente_id' => (int) $fila['paciente_id'],
                 'paciente' => $fila['paciente'],
                 'psicologo' => $fila['psicologo'],
                 'psicologo_id' => (int) $fila['psicologo_id'],
@@ -388,7 +489,7 @@ $sqlReuniones .= ' GROUP BY ri.id, ri.titulo, ri.inicio, ri.fin
 
 $stmtReuniones = $conn->prepare($sqlReuniones);
 if ($stmtReuniones === false) {
-    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de reuniones.']);
+    jsonResponse(500, ['error' => 'No fue posible preparar la consulta de reuniones.', 'debug' => ['mysqli_error' => $conn->error, 'sql' => $sqlReuniones]]);
 }
 
 if ($tiposReunion !== '') {
@@ -396,8 +497,9 @@ if ($tiposReunion !== '') {
 }
 
 if (!$stmtReuniones->execute()) {
+    $errorReuniones = $stmtReuniones->error;
     $stmtReuniones->close();
-    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de reuniones.']);
+    jsonResponse(500, ['error' => 'No fue posible ejecutar la consulta de reuniones.', 'debug' => ['mysqli_error' => $errorReuniones]]);
 }
 
 $resultadoReuniones = $stmtReuniones->get_result();
@@ -427,12 +529,154 @@ while ($fila = $resultadoReuniones->fetch_assoc()) {
         'tipo' => $fila['titulo'] ?: 'Reunión interna',
         'forma_pago' => null,
         'costo' => null,
+        'bloquea_agenda' => true,
         'solicitudesReprogramacionPendientes' => 0,
         'solicitudesCancelacionPendientes' => 0,
     ];
 }
 
 $stmtReuniones->close();
+
+if (true) {
+    try {
+    $rangeStart = $fechaInicio !== null ? new DateTime($fechaInicio, $timezone) : new DateTime('first day of this month', $timezone);
+    $rangeEnd = $fechaFin !== null ? new DateTime($fechaFin, $timezone) : new DateTime('last day of this month 23:59:59', $timezone);
+    $rangeStartDate = clone $rangeStart;
+    $rangeStartDate->setTime(0, 0, 0);
+    $rangeEndDate = clone $rangeEnd;
+    $rangeEndDate->setTime(23, 59, 59);
+
+    $condicionesRecurrencia = ['rir.activo = 1', 'rir.fecha_inicio <= DATE(?)', '(rir.fecha_fin IS NULL OR rir.fecha_fin >= DATE(?))'];
+    $tiposRecurrencia = 'ss';
+    $parametrosRecurrencia = [$rangeEndDate->format('Y-m-d'), $rangeStartDate->format('Y-m-d')];
+
+    if ($psicologoId !== null) {
+        $condicionesRecurrencia[] = '(rir.bloquea_agenda = 0 OR EXISTS (SELECT 1 FROM ReunionInternaRecurrenciaPsicologo rirp_f WHERE rirp_f.recurrencia_id = rir.id AND rirp_f.psicologo_id = ?))';
+        $tiposRecurrencia .= 'i';
+        $parametrosRecurrencia[] = $psicologoId;
+    }
+
+    $sqlRecurrencias = 'SELECT rir.id,
+                               rir.titulo,
+                               rir.descripcion,
+                               rir.fecha_inicio,
+                               rir.fecha_fin,
+                               rir.hora_inicio,
+                               rir.hora_fin,
+                               rir.frecuencia,
+                               rir.intervalo,
+                               rir.dia_semana,
+                               rir.semana_mes,
+                               rir.mes_anual,
+                               rir.dia_anual,
+                               rir.bloquea_agenda,
+                               GROUP_CONCAT(u.name ORDER BY u.name SEPARATOR ", ") AS psicologos,
+                               MIN(rirp.psicologo_id) AS psicologo_id,
+                               MIN(co.codigo_hex) AS psicologo_color,
+                               GROUP_CONCAT(DISTINCT ex.fecha_ocurrencia ORDER BY ex.fecha_ocurrencia SEPARATOR ",") AS fechas_canceladas
+                        FROM ReunionInternaRecurrencia rir
+                        LEFT JOIN ReunionInternaRecurrenciaPsicologo rirp ON rirp.recurrencia_id = rir.id
+                        LEFT JOIN Usuarios u ON u.id = rirp.psicologo_id
+                        LEFT JOIN colores co ON co.id = u.color_id
+                        LEFT JOIN ReunionInternaRecurrenciaExcepcion ex ON ex.recurrencia_id = rir.id AND ex.accion = \'cancelada\'
+                        WHERE ' . implode(' AND ', $condicionesRecurrencia) . '
+                        GROUP BY rir.id, rir.titulo, rir.descripcion, rir.fecha_inicio, rir.fecha_fin, rir.hora_inicio, rir.hora_fin, rir.frecuencia, rir.intervalo, rir.dia_semana, rir.semana_mes, rir.mes_anual, rir.dia_anual, rir.bloquea_agenda
+                        ORDER BY rir.fecha_inicio ASC';
+
+    $stmtRecurrencias = $conn->prepare($sqlRecurrencias);
+    if ($stmtRecurrencias === false) {
+        error_log('citas_calendario: error al preparar reuniones recurrentes: ' . $conn->error);
+    } else {
+        $stmtRecurrencias->bind_param($tiposRecurrencia, ...$parametrosRecurrencia);
+        if (!$stmtRecurrencias->execute()) {
+            error_log('citas_calendario: error al ejecutar reuniones recurrentes: ' . $stmtRecurrencias->error);
+            $stmtRecurrencias->close();
+            $stmtRecurrencias = null;
+        }
+    }
+
+    $resultadoRecurrencias = $stmtRecurrencias instanceof mysqli_stmt ? $stmtRecurrencias->get_result() : null;
+    while ($resultadoRecurrencias instanceof mysqli_result && ($fila = $resultadoRecurrencias->fetch_assoc())) {
+        $inicioSerie = DateTime::createFromFormat('Y-m-d', (string) $fila['fecha_inicio'], $timezone);
+        if (!$inicioSerie) {
+            continue;
+        }
+        $finSerie = !empty($fila['fecha_fin']) ? DateTime::createFromFormat('Y-m-d', (string) $fila['fecha_fin'], $timezone) : null;
+        $canceladas = array_flip(array_filter(explode(',', (string) ($fila['fechas_canceladas'] ?? ''))));
+        $intervalo = max(1, (int) $fila['intervalo']);
+        $frecuencia = (string) $fila['frecuencia'];
+        $ocurrencias = [];
+
+        if ($frecuencia === 'semanal') {
+            $cursor = clone $inicioSerie;
+            while ((int) $cursor->format('N') !== (int) $fila['dia_semana']) {
+                $cursor->modify('+1 day');
+            }
+            while ($cursor <= $rangeEndDate) {
+                if ($cursor >= $rangeStartDate && ($finSerie === null || $cursor <= $finSerie)) {
+                    $ocurrencias[] = clone $cursor;
+                }
+                $cursor->modify('+' . $intervalo . ' week');
+            }
+        } elseif ($frecuencia === 'mensual_dia_semana') {
+            $cursor = new DateTime($rangeStartDate->format('Y-m-01'), $timezone);
+            $serieMonth = ((int) $inicioSerie->format('Y')) * 12 + (int) $inicioSerie->format('n');
+            while ($cursor <= $rangeEndDate) {
+                $cursorMonth = ((int) $cursor->format('Y')) * 12 + (int) $cursor->format('n');
+                if ($cursorMonth >= $serieMonth && (($cursorMonth - $serieMonth) % $intervalo) === 0) {
+                    $candidate = nthWeekdayOfMonth((int) $cursor->format('Y'), (int) $cursor->format('n'), (int) $fila['dia_semana'], (int) $fila['semana_mes'], $timezone);
+                    if ($candidate >= $rangeStartDate && $candidate <= $rangeEndDate && $candidate >= $inicioSerie && ($finSerie === null || $candidate <= $finSerie)) {
+                        $ocurrencias[] = $candidate;
+                    }
+                }
+                $cursor->modify('first day of next month');
+            }
+        } elseif ($frecuencia === 'anual_aviso') {
+            for ($year = (int) $rangeStartDate->format('Y'); $year <= (int) $rangeEndDate->format('Y'); $year++) {
+                $candidate = DateTime::createFromFormat('Y-m-d', sprintf('%04d-%02d-%02d', $year, (int) $fila['mes_anual'], (int) $fila['dia_anual']), $timezone);
+                if ($candidate && $candidate >= $rangeStartDate && $candidate <= $rangeEndDate && $candidate >= $inicioSerie && ($finSerie === null || $candidate <= $finSerie)) {
+                    $ocurrencias[] = $candidate;
+                }
+            }
+        }
+
+        foreach ($ocurrencias as $ocurrencia) {
+            $fechaOcurrencia = $ocurrencia->format('Y-m-d');
+            if (isset($canceladas[$fechaOcurrencia])) {
+                continue;
+            }
+            $inicio = aplicarHora($ocurrencia, (string) $fila['hora_inicio']);
+            $fin = aplicarHora($ocurrencia, (string) $fila['hora_fin']);
+            $bloqueaAgenda = (int) $fila['bloquea_agenda'] === 1;
+
+            $eventos[] = [
+                'id' => 'reunion-recurrente-' . (int) $fila['id'] . '-' . $inicio->format('Ymd'),
+                'event_kind' => $bloqueaAgenda ? 'reunion_recurrente' : 'aviso_anual',
+                'entity_id' => (int) $fila['id'],
+                'occurrence_date' => $fechaOcurrencia,
+                'paciente' => null,
+                'psicologo' => $bloqueaAgenda ? ($fila['psicologos'] ?? '') : '',
+                'psicologo_id' => isset($fila['psicologo_id']) ? (int) $fila['psicologo_id'] : null,
+                'psicologo_color' => $fila['psicologo_color'] ?? null,
+                'programado' => $inicio->format(DateTime::ATOM),
+                'termina' => $fin->format(DateTime::ATOM),
+                'estatus' => $bloqueaAgenda ? 'Recurrente' : 'Aviso anual',
+                'tipo' => $fila['titulo'] ?: ($bloqueaAgenda ? 'Reunión recurrente' : 'Aviso anual'),
+                'forma_pago' => null,
+                'costo' => null,
+                'bloquea_agenda' => $bloqueaAgenda,
+                'solicitudesReprogramacionPendientes' => 0,
+                'solicitudesCancelacionPendientes' => 0,
+            ];
+        }
+    }
+    if ($stmtRecurrencias instanceof mysqli_stmt) {
+        $stmtRecurrencias->close();
+    }
+    } catch (Throwable $e) {
+        error_log('citas_calendario: se omitieron reuniones recurrentes: ' . $e->getMessage());
+    }
+}
 
 usort($eventos, static function (array $a, array $b): int {
     return strcmp(($a['programado'] ?? '') . '', ($b['programado'] ?? '') . '');

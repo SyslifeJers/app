@@ -1,0 +1,8 @@
+{
+  "ip": "192.168.0.184",
+  "usuario": "admin",
+  "password": "H.246810",
+  "equipo": "DS-K1T320MFWX-B",
+  "sucursal": "Puebla Centro",
+  "urlApi": "https://app.clinicacerene.com/api/checador/subir_log.php"
+}

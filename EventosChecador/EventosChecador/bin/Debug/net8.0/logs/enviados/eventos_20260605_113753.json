@@ -1,0 +1,14 @@
+﻿{
+  "fechaSincronizacion": "2026-06-05T11:37:53",
+  "equipo": "DS-K1T320MFWX-B",
+  "sucursal": "Puebla Centro",
+  "eventos": [
+    {
+      "serialNo": 9118,
+      "empleado": "117",
+      "nombre": "Elias Romero",
+      "fechaHora": "2026-06-05T11:37:44-06:00",
+      "doorNo": 1
+    }
+  ]
+}

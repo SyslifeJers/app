@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: POST, OPTIONS');
@@ -14,14 +12,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 require_once __DIR__ . '/../../conexion.php';
 
-function jsonResponse(int $statusCode, array $payload): void
+function jsonResponse($statusCode, $payload)
 {
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-function getJsonInput(): array
+function getJsonInput()
 {
     $raw = file_get_contents('php://input');
     if ($raw === false || trim($raw) === '') {
@@ -39,7 +37,7 @@ function getJsonInput(): array
     return $data;
 }
 
-function normalizarFecha(?string $valor, string $campo): ?string
+function normalizarFecha($valor, $campo)
 {
     if ($valor === null || trim($valor) === '') {
         return null;
@@ -53,7 +51,7 @@ function normalizarFecha(?string $valor, string $campo): ?string
     }
 }
 
-function obtenerEntero($valor, string $campo, bool $requerido): ?int
+function obtenerEntero($valor, $campo, $requerido)
 {
     if ($valor === null || $valor === '') {
         if ($requerido) {
@@ -108,11 +106,11 @@ foreach ($payload['eventos'] as $indice => $evento) {
         continue;
     }
 
-    $serialNo = obtenerEntero($evento['serialNo'] ?? null, 'serialNo', true);
+    $serialNo = obtenerEntero(isset($evento['serialNo']) ? $evento['serialNo'] : null, 'serialNo', true);
     $empleado = isset($evento['empleado']) ? trim((string) $evento['empleado']) : '';
     $nombre = isset($evento['nombre']) ? trim((string) $evento['nombre']) : null;
     $fechaHora = normalizarFecha(isset($evento['fechaHora']) ? (string) $evento['fechaHora'] : null, 'fechaHora');
-    $doorNo = obtenerEntero($evento['doorNo'] ?? null, 'doorNo', false);
+    $doorNo = obtenerEntero(isset($evento['doorNo']) ? $evento['doorNo'] : null, 'doorNo', false);
 
     if ($serialNo === null || $serialNo <= 0) {
         $omitidos[] = ['indice' => $indice, 'motivo' => 'serialNo invalido.'];

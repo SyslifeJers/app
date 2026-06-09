@@ -148,6 +148,16 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
         },
       });
     </script>
+    <script>
+      (function () {
+        try {
+          if (localStorage.getItem('cereneSidebarMinimized') === '1') {
+            document.documentElement.classList.add('sidebar_minimize');
+          }
+        } catch (error) {
+        }
+      })();
+    </script>
 
     <!-- CSS Files -->
     <link rel="stylesheet" href="../assets/css/bootstrap.min.css" />
@@ -229,6 +239,17 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
   </head>
   <body>
     <div class="wrapper">
+      <script>
+        (function () {
+          try {
+            if (localStorage.getItem('cereneSidebarMinimized') === '1') {
+              document.currentScript.parentElement.classList.add('sidebar_minimize');
+            }
+            document.documentElement.classList.remove('sidebar_minimize');
+          } catch (error) {
+          }
+        })();
+      </script>
       <!-- Sidebar -->
       <div class="sidebar" data-background-color="dark">
         <div class="sidebar-logo">

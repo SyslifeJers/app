@@ -1,0 +1,16 @@
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\accesos.json
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\EventosChecador.exe
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\EventosChecador.deps.json
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\EventosChecador.runtimeconfig.json
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\EventosChecador.dll
+D:\AppCerene\git\EventosChecador\EventosChecador\bin\Debug\net8.0\EventosChecador.pdb
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.GeneratedMSBuildEditorConfig.editorconfig
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.AssemblyInfoInputs.cache
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.AssemblyInfo.cs
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.csproj.CoreCompileInputs.cache
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.sourcelink.json
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.dll
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\refint\EventosChecador.dll
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.pdb
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\EventosChecador.genruntimeconfig.cache
+D:\AppCerene\git\EventosChecador\EventosChecador\obj\Debug\net8.0\ref\EventosChecador.dll

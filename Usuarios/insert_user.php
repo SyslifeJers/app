@@ -19,6 +19,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $pass = $_POST['pass'];
     $telefono = $_POST['telefono'];
     $correo = $_POST['correo'];
+    $idChecador = isset($_POST['id_checador']) ? trim($_POST['id_checador']) : '';
     $IdRol = (int) ($_POST['IdRol'] ?? 0);
 
     $rolSesion = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
@@ -38,12 +39,19 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $conn = conectar();
 
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, ?)");
-    $stmt->bind_param("sssssi", $name, $user, $pass, $telefono, $correo, $IdRol);
+    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, id_checador, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, NULLIF(?, ''), ?)");
+    $stmt->bind_param("ssssssi", $name, $user, $pass, $telefono, $correo, $idChecador, $IdRol);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {
         $nuevoUsuarioId = $conn->insert_id;
+        if ($idChecador === '') {
+            $stmtChecador = $conn->prepare("UPDATE Usuarios SET id_checador = ? WHERE id = ?");
+            $idChecadorGenerado = (string) $nuevoUsuarioId;
+            $stmtChecador->bind_param("si", $idChecadorGenerado, $nuevoUsuarioId);
+            $stmtChecador->execute();
+            $stmtChecador->close();
+        }
         registrarLog(
             $conn,
             $_SESSION['id'] ?? null,

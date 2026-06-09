@@ -20,6 +20,8 @@ if (!isset($_SESSION['id'])) {
     responderCancelacionReservacion(401, ['success' => false, 'message' => 'No autenticado.']);
 }
 
+$usuarioId = (int) $_SESSION['id'];
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     responderCancelacionReservacion(405, ['success' => false, 'message' => 'Método no permitido.']);
 }
@@ -68,7 +70,7 @@ try {
 
     registrarLog(
         $conn,
-        $_SESSION['id'],
+        $usuarioId,
         'reservaciones_continuas',
         'cancelar',
         sprintf('La reservación continua #%d fue cancelada lógicamente.', $reservacionId),

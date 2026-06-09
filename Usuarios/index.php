@@ -70,13 +70,14 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                         <th class="text-uppercase small text-muted">Registro</th>
                         <th class="text-uppercase small text-muted">Teléfono</th>
                         <th class="text-uppercase small text-muted">Correo</th>
+                        <th class="text-uppercase small text-muted">ID checador</th>
                         <th class="text-uppercase small text-muted">Rol</th>
                         <th class="text-uppercase small text-muted">Acciones</th>
                     </tr>
                 </thead>
                 <tbody>
                 <?php
-                $sql = "SELECT usua.`id`, usua.`name`, `user`, `pass`, usua.`activo`, `registro`, `telefono`, `correo`, r.name AS rol
+                $sql = "SELECT usua.`id`, usua.`name`, `user`, `pass`, usua.`activo`, `registro`, `telefono`, `correo`, `id_checador`, r.name AS rol
                         FROM `Usuarios` usua
                         INNER JOIN Rol r ON r.id = usua.IdRol
                         ORDER BY usua.`id` DESC";
@@ -85,7 +86,7 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                 $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 
                 if ($result === false) {
-                    echo '<tr><td colspan="10" class="text-center text-danger">No se pudo obtener la lista de usuarios.</td></tr>';
+                    echo '<tr><td colspan="11" class="text-center text-danger">No se pudo obtener la lista de usuarios.</td></tr>';
                 } else {
                     while ($row = $result->fetch_assoc()) {
                         $estaActivo = (int) $row['activo'] === 1;
@@ -107,6 +108,7 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
 
                         $telefonoTexto = trim((string) ($row['telefono'] ?? ''));
                         $correoTexto = trim((string) ($row['correo'] ?? ''));
+                        $idChecadorTexto = trim((string) ($row['id_checador'] ?? ''));
 
                         $telefonoHtml = $telefonoTexto !== ''
                             ? htmlspecialchars($telefonoTexto, ENT_QUOTES, 'UTF-8')
@@ -116,6 +118,10 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                             ? htmlspecialchars($correoTexto, ENT_QUOTES, 'UTF-8')
                             : '<span class="text-muted">Sin registrar</span>';
 
+                        $idChecadorHtml = $idChecadorTexto !== ''
+                            ? htmlspecialchars($idChecadorTexto, ENT_QUOTES, 'UTF-8')
+                            : '<span class="text-muted">Sin relacionar</span>';
+
                         $fechaRegistroHtml = $fechaRegistro !== ''
                             ? htmlspecialchars($fechaRegistro, ENT_QUOTES, 'UTF-8')
                             : '<span class="text-muted">Sin dato</span>';
@@ -124,7 +130,7 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                         echo '<td class="fw-semibold" data-order="' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '">#' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '</td>';
                         echo '<td>';
                         echo '<div class="d-flex flex-column">';
-                        echo '<span class="fw-semibold">' . $nombre . '</span>';
+                        echo '<a class="fw-semibold text-decoration-none" href="checador_eventos.php?id=' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '">' . $nombre . '</a>';
                         echo '<span class="text-muted small">ID usuario: ' . htmlspecialchars((string) $usuarioId, ENT_QUOTES, 'UTF-8') . '</span>';
                         echo '</div>';
                         echo '</td>';
@@ -143,6 +149,7 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                         echo '<td>' . $fechaRegistroHtml . '</td>';
                         echo '<td>' . $telefonoHtml . '</td>';
                         echo '<td>' . $correoHtml . '</td>';
+                        echo '<td>' . $idChecadorHtml . '</td>';
 
                         echo '<td><span class="badge bg-primary-subtle text-primary-emphasis">' . $rolNombre . '</span></td>';
 
@@ -212,6 +219,10 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                         <input type="email" class="form-control" id="editCorreo" name="correo">
                     </div>
                     <div class="mb-3">
+                        <label for="editIdChecador" class="form-label">ID checador</label>
+                        <input type="text" class="form-control" id="editIdChecador" name="id_checador" placeholder="Ej. 117">
+                    </div>
+                    <div class="mb-3">
                         <label for="editRol" class="form-label">Rol</label>
                         <select class="form-select" id="editRol" name="editRol" required>
                         </select>
@@ -269,6 +280,10 @@ if (!$puedeAdministrarUsuarios && !$puedeCrearPracticantes) {
                     <div class="mb-3">
                         <label for="correo" class="form-label">Correo</label>
                         <input type="email" class="form-control" id="correo" name="correo">
+                    </div>
+                    <div class="mb-3">
+                        <label for="id_checador" class="form-label">ID checador</label>
+                        <input type="text" class="form-control" id="id_checador" name="id_checador" placeholder="Ej. 117">
                     </div>
                     <div class="mb-3">
                         <label for="IdRol" class="form-label">Rol</label>
@@ -445,6 +460,7 @@ include '../Modulos/footer.php';
                 document.getElementById('editPass').value = data.pass;
                 document.getElementById('editTelefono').value = data.telefono;
                 document.getElementById('editCorreo').value = data.correo;
+                document.getElementById('editIdChecador').value = data.id_checador || '';
                 document.getElementById('editRol').value = data.IdRol;
                 var editColorSelect = document.getElementById('editColor');
                 if (data.color_id === null || data.color_id === undefined) {

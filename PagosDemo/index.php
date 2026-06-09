@@ -134,6 +134,38 @@ function demoPagosInsertarPago(mysqli $conn, array $data): int
     return $id;
 }
 
+function demoPagosInsertarDetallePagoCita(mysqli $conn, int $citaId, string $metodo, float $monto, ?int $usuarioId): void
+{
+    if ($monto <= 0.009) {
+        return;
+    }
+
+    $metodo = substr(trim($metodo), 0, 50);
+    if ($metodo === '') {
+        return;
+    }
+
+    if ($usuarioId !== null) {
+        $stmt = $conn->prepare('INSERT INTO CitaPagos (cita_id, metodo, monto, registrado_por) VALUES (?, ?, ?, ?)');
+        if (!$stmt) {
+            throw new RuntimeException('No fue posible preparar el detalle del pago de la cita.');
+        }
+        $stmt->bind_param('isdi', $citaId, $metodo, $monto, $usuarioId);
+    } else {
+        $stmt = $conn->prepare('INSERT INTO CitaPagos (cita_id, metodo, monto, registrado_por) VALUES (?, ?, ?, NULL)');
+        if (!$stmt) {
+            throw new RuntimeException('No fue posible preparar el detalle del pago de la cita.');
+        }
+        $stmt->bind_param('isd', $citaId, $metodo, $monto);
+    }
+
+    if (!$stmt->execute()) {
+        $stmt->close();
+        throw new RuntimeException('No fue posible guardar el detalle del pago de la cita.');
+    }
+    $stmt->close();
+}
+
 function demoPagosInsertarMovimientoSaldo(mysqli $conn, int $pacienteId, string $tipo, float $monto, ?int $pagoId, ?int $citaId, ?int $paqueteId, ?int $usuarioId, ?string $observaciones): void
 {
     if (abs($monto) < 0.01) {
@@ -229,6 +261,20 @@ function demoPagosObtenerIdEstatus(mysqli $conn, string $nombre, int $predetermi
     return $estatusId ?? $predeterminado;
 }
 
+function demoPagosRegistrarHistorialEstatus(mysqli $conn, string $fechaActual, int $estatusId, int $citaId, ?int $usuarioId): void
+{
+    if ($usuarioId === null) {
+        return;
+    }
+
+    $stmtHistorial = $conn->prepare('INSERT INTO HistorialEstatus(id, fecha, idEstatus, idCita, idUsuario) VALUES (NULL, ?, ?, ?, ?)');
+    if ($stmtHistorial) {
+        $stmtHistorial->bind_param('siii', $fechaActual, $estatusId, $citaId, $usuarioId);
+        $stmtHistorial->execute();
+        $stmtHistorial->close();
+    }
+}
+
 function demoPagosPsicologo(mysqli $conn, int $psicologoId): array
 {
     $stmt = $conn->prepare("SELECT usu.id, usu.name FROM Usuarios usu INNER JOIN Rol ON Rol.id = usu.IdRol WHERE usu.id = ? AND usu.activo = 1 AND LOWER(Rol.name) LIKE '%psicolog%' LIMIT 1");
@@ -251,6 +297,7 @@ function demoPagosPsicologo(mysqli $conn, int $psicologoId): array
 
 $mensajeDemo = null;
 $tipoMensajeDemo = 'success';
+$proximaCitaDemo = null;
 $tienePermisoDemo = in_array($rolUsuario, $rolesPermitidos, true) && $rolUsuario !== $ROL_PRACTICANTE;
 
 if ($tienePermisoDemo) {
@@ -283,14 +330,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $stmtCancelar->close();
 
-            if ($usuarioId !== null) {
-                $stmtHistorial = $conn->prepare('INSERT INTO HistorialEstatus(id, fecha, idEstatus, idCita, idUsuario) VALUES (NULL, ?, ?, ?, ?)');
-                if ($stmtHistorial) {
-                    $stmtHistorial->bind_param('siii', $fechaActual, $estatusCancelada, $citaId, $usuarioId);
-                    $stmtHistorial->execute();
-                    $stmtHistorial->close();
-                }
-            }
+            demoPagosRegistrarHistorialEstatus($conn, $fechaActual, $estatusCancelada, $citaId, $usuarioId);
 
             $mensajeDemo = 'Cita cancelada correctamente.';
         } elseif ($accion === 'registrar_cita') {
@@ -339,14 +379,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $nuevaCitaId = (int) $conn->insert_id;
             $stmtCita->close();
 
-            if ($usuarioId !== null) {
-                $stmtHistorial = $conn->prepare('INSERT INTO HistorialEstatus(id, fecha, idEstatus, idCita, idUsuario) VALUES (NULL, ?, ?, ?, ?)');
-                if ($stmtHistorial) {
-                    $stmtHistorial->bind_param('siii', $fechaActual, $estatusCreada, $nuevaCitaId, $usuarioId);
-                    $stmtHistorial->execute();
-                    $stmtHistorial->close();
-                }
-            }
+            demoPagosRegistrarHistorialEstatus($conn, $fechaActual, $estatusCreada, $nuevaCitaId, $usuarioId);
 
             $mensajeDemo = 'Cita registrada para ' . $paciente['name'] . ' con ' . $psicologo['name'] . '. Los pagos quedan separados del registro de cita.';
         } elseif ($accion === 'registrar_pago_sin_cita') {
@@ -477,6 +510,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $metodoPago = isset($_POST['metodo_pago']) ? substr(trim((string) $_POST['metodo_pago']), 0, 50) : '';
             $montoExterno = isset($_POST['monto_externo']) ? (float) $_POST['monto_externo'] : 0.0;
             $montoSaldo = isset($_POST['monto_saldo']) ? (float) $_POST['monto_saldo'] : 0.0;
+            $imprimirTicket = isset($_POST['imprimir_ticket']) && (int) $_POST['imprimir_ticket'] === 1;
             $observaciones = isset($_POST['observaciones']) ? substr(trim((string) $_POST['observaciones']), 0, 255) : null;
 
             if ($citaId <= 0) {
@@ -489,7 +523,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Selecciona metodo de pago para el monto externo.');
             }
 
-            $stmtCita = $conn->prepare('SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, ci.Tipo, n.name AS paciente_nombre, u.name AS psicologo_nombre FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ? LIMIT 1');
+            $stmtCita = $conn->prepare('SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, ci.Tiempo, ci.Tipo, n.name AS paciente_nombre, u.name AS psicologo_nombre FROM Cita ci INNER JOIN nino n ON n.id = ci.IdNino INNER JOIN Usuarios u ON u.id = ci.IdUsuario WHERE ci.id = ? LIMIT 1');
             if (!$stmtCita) {
                 throw new RuntimeException('No fue posible consultar la cita.');
             }
@@ -505,6 +539,19 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $pacienteId = (int) $cita['IdNino'];
             $costo = (float) $cita['costo'];
             $totalAplicado = $montoExterno + $montoSaldo;
+            $pagadoPrevio = 0.0;
+            $stmtPagadoPrevio = $conn->prepare("SELECT COALESCE((SELECT SUM(dp.monto) FROM Pagos dp WHERE dp.cita_id = ?), 0) + COALESCE((SELECT ABS(SUM(dsm.monto)) FROM SaldoMovimientos dsm WHERE dsm.cita_id = ? AND dsm.tipo = 'consumo_cita'), 0)");
+            if (!$stmtPagadoPrevio) {
+                throw new RuntimeException('No fue posible consultar los pagos previos de la cita.');
+            }
+            $stmtPagadoPrevio->bind_param('ii', $citaId, $citaId);
+            $stmtPagadoPrevio->execute();
+            $stmtPagadoPrevio->bind_result($pagadoPrevioCalculado);
+            if ($stmtPagadoPrevio->fetch()) {
+                $pagadoPrevio = (float) $pagadoPrevioCalculado;
+            }
+            $stmtPagadoPrevio->close();
+
             $pagoId = null;
             if ($montoExterno > 0) {
                 $pagoId = demoPagosInsertarPago($conn, [
@@ -523,20 +570,67 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
                     'registrado_por' => $usuarioId,
                     'observaciones' => $observaciones !== '' ? $observaciones : 'Pago externo de cita #' . $citaId,
                 ]);
+                demoPagosInsertarDetallePagoCita($conn, $citaId, $metodoPago, $montoExterno, $usuarioId);
             }
 
             if ($montoSaldo > 0) {
                 demoPagosInsertarMovimientoSaldo($conn, $pacienteId, 'consumo_cita', -1 * $montoSaldo, $pagoId, $citaId, null, $usuarioId, 'Consumo de saldo para cita #' . $citaId);
+                demoPagosInsertarDetallePagoCita($conn, $citaId, 'Saldo', $montoSaldo, $usuarioId);
             }
 
-            $faltante = max(0, $costo - $totalAplicado);
+            $faltantePrevio = max(0, $costo - $pagadoPrevio);
+            $faltante = max(0, $faltantePrevio - $totalAplicado);
             if ($faltante > 0) {
                 demoPagosInsertarMovimientoSaldo($conn, $pacienteId, 'adeudo_cita', -1 * $faltante, $pagoId, $citaId, null, $usuarioId, 'Faltante pendiente de cita #' . $citaId);
             }
 
-            $excedente = max(0, $totalAplicado - $costo);
+            $excedente = max(0, $totalAplicado - $faltantePrevio);
             if ($excedente > 0) {
                 demoPagosInsertarMovimientoSaldo($conn, $pacienteId, 'excedente_cita', $excedente, $pagoId, $citaId, null, $usuarioId, 'Excedente guardado como saldo de cita #' . $citaId);
+            }
+
+            if ($faltante <= 0.009) {
+                $estatusFinalizada = demoPagosObtenerIdEstatus($conn, 'Finalizada', 4);
+                $formaPagoCita = $montoSaldo > 0 && $montoExterno > 0 ? $metodoPago . ' + Saldo' : ($montoSaldo > 0 ? 'Saldo' : $metodoPago);
+                $stmtFinalizar = $conn->prepare('UPDATE Cita SET FormaPago = ?, Estatus = ? WHERE id = ?');
+                if (!$stmtFinalizar) {
+                    throw new RuntimeException('No fue posible preparar la finalizacion de la cita.');
+                }
+                $stmtFinalizar->bind_param('sii', $formaPagoCita, $estatusFinalizada, $citaId);
+                if (!$stmtFinalizar->execute()) {
+                    $stmtFinalizar->close();
+                    throw new RuntimeException('No fue posible finalizar la cita.');
+                }
+                $stmtFinalizar->close();
+                demoPagosRegistrarHistorialEstatus($conn, $fechaActual, $estatusFinalizada, $citaId, $usuarioId);
+
+                if ($imprimirTicket) {
+                    $stmtAgregarTicket = $conn->prepare('INSERT INTO colaTickets (id_cita) VALUES (?)');
+                    if (!$stmtAgregarTicket) {
+                        throw new RuntimeException('No fue posible preparar la cola de impresion.');
+                    }
+                    $stmtAgregarTicket->bind_param('i', $citaId);
+                    if (!$stmtAgregarTicket->execute()) {
+                        $stmtAgregarTicket->close();
+                        throw new RuntimeException('No fue posible agregar el ticket a la cola de impresion.');
+                    }
+                    $stmtAgregarTicket->close();
+                }
+
+                $fechaProxima = DateTime::createFromFormat('Y-m-d H:i:s', (string) $cita['Programado'], new DateTimeZone('America/Mexico_City'));
+                if ($fechaProxima) {
+                    $fechaProxima->modify('+7 days');
+                    $proximaCitaDemo = [
+                        'paciente_id' => $pacienteId,
+                        'paciente_nombre' => (string) $cita['paciente_nombre'],
+                        'psicologo_id' => (int) $cita['IdUsuario'],
+                        'psicologo_nombre' => (string) $cita['psicologo_nombre'],
+                        'tipo' => (string) $cita['Tipo'],
+                        'costo' => $costo,
+                        'tiempo' => isset($cita['Tiempo']) ? (int) $cita['Tiempo'] : 60,
+                        'programado' => $fechaProxima->format('Y-m-d\TH:i'),
+                    ];
+                }
             }
 
             $mensajeDemo = $faltante > 0
@@ -572,6 +666,9 @@ $fechaVista = $fechaVistaObj->format('Y-m-d');
 $fechaVistaAnterior = (clone $fechaVistaObj)->modify('-1 day')->format('Y-m-d');
 $fechaVistaSiguiente = (clone $fechaVistaObj)->modify('+1 day')->format('Y-m-d');
 $fechaVistaTitulo = $fechaVistaObj->format('d/m/Y');
+$mostrarTodosEstatusDemo = isset($_GET['mostrar_estatus']) && $_GET['mostrar_estatus'] === 'todos';
+$urlMostrarTodosEstatusDemo = '?fecha=' . rawurlencode($fechaVista) . '&mostrar_estatus=todos';
+$urlOcultarEstatusDemo = '?fecha=' . rawurlencode($fechaVista);
 
 if ($tienePermisoDemo) {
     if ($result = $conn->query('SELECT n.id, n.name, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM nino n WHERE n.activo = 1 ORDER BY n.name ASC LIMIT 500')) {
@@ -602,13 +699,13 @@ if ($tienePermisoDemo) {
         $result->free();
     }
 
-    $sqlCitas = "SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, ci.Tipo, n.name AS paciente_nombre, u.name AS psicologo_nombre,
+    $sqlCitas = "SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, ci.Tiempo, ci.Tipo, n.name AS paciente_nombre, u.name AS psicologo_nombre,
                     COALESCE(n.saldo_paquete, 0) AS saldo_demo
                  FROM Cita ci
                  INNER JOIN nino n ON n.id = ci.IdNino
                  INNER JOIN Usuarios u ON u.id = ci.IdUsuario
                  LEFT JOIN Estatus es ON es.id = ci.Estatus
-                 WHERE (es.name IS NULL OR es.name NOT IN ('Cancelada'))
+                 WHERE (es.name IS NULL OR es.name NOT IN ('Cancelada', 'Finalizada'))
                  ORDER BY ci.Programado DESC
                  LIMIT 300";
     if ($result = $conn->query($sqlCitas)) {
@@ -618,7 +715,7 @@ if ($tienePermisoDemo) {
         $result->free();
     }
 
-    $sqlCitasHoy = "SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, TIME(ci.Programado) AS Hora, ci.Tipo, ci.FormaPago, es.name AS estatus_nombre, n.name AS paciente_nombre, u.name AS psicologo_nombre,
+    $sqlCitasHoy = "SELECT ci.id, ci.IdNino, ci.IdUsuario, ci.costo, ci.Programado, ci.Tiempo, TIME(ci.Programado) AS Hora, ci.Tipo, ci.FormaPago, es.name AS estatus_nombre, n.name AS paciente_nombre, u.name AS psicologo_nombre,
                        COALESCE(n.saldo_paquete, 0) AS saldo_demo,
                        COALESCE((SELECT SUM(dp.monto) FROM Pagos dp WHERE dp.cita_id = ci.id), 0) AS pagado_externo_demo,
                        COALESCE((SELECT ABS(SUM(dsm2.monto)) FROM SaldoMovimientos dsm2 WHERE dsm2.cita_id = ci.id AND dsm2.tipo = 'consumo_cita'), 0) AS pagado_saldo_demo
@@ -627,6 +724,7 @@ if ($tienePermisoDemo) {
                     INNER JOIN Usuarios u ON u.id = ci.IdUsuario
                     LEFT JOIN Estatus es ON es.id = ci.Estatus
                     WHERE DATE(ci.Programado) = ?
+                        " . ($mostrarTodosEstatusDemo ? '' : "AND (es.name IS NULL OR es.name NOT IN ('Cancelada', 'Finalizada'))") . "
                     ORDER BY CASE WHEN ci.Programado >= NOW() THEN 0 ELSE 1 END, ci.Programado ASC";
     if ($stmtCitasHoy = $conn->prepare($sqlCitasHoy)) {
         $stmtCitasHoy->bind_param('s', $fechaVista);
@@ -694,18 +792,28 @@ if ($tienePermisoDemo) {
         $result->free();
     }
 
-    if ($result = $conn->query('SELECT metodo_pago, SUM(monto) AS total FROM Pagos GROUP BY metodo_pago ORDER BY total DESC')) {
-        while ($row = $result->fetch_assoc()) {
-            $resumenMetodo[] = $row;
+    if ($stmtResumenMetodo = $conn->prepare('SELECT metodo_pago, SUM(monto) AS total FROM Pagos WHERE fecha_corte = ? GROUP BY metodo_pago ORDER BY total DESC')) {
+        $stmtResumenMetodo->bind_param('s', $fechaVista);
+        $stmtResumenMetodo->execute();
+        $result = $stmtResumenMetodo->get_result();
+        if ($result instanceof mysqli_result) {
+            while ($row = $result->fetch_assoc()) {
+                $resumenMetodo[] = $row;
+            }
         }
-        $result->free();
+        $stmtResumenMetodo->close();
     }
 
-    if ($result = $conn->query('SELECT origen, SUM(monto) AS total FROM Pagos GROUP BY origen ORDER BY total DESC')) {
-        while ($row = $result->fetch_assoc()) {
-            $resumenOrigen[] = $row;
+    if ($stmtResumenOrigen = $conn->prepare('SELECT origen, SUM(monto) AS total FROM Pagos WHERE fecha_corte = ? GROUP BY origen ORDER BY total DESC')) {
+        $stmtResumenOrigen->bind_param('s', $fechaVista);
+        $stmtResumenOrigen->execute();
+        $result = $stmtResumenOrigen->get_result();
+        if ($result instanceof mysqli_result) {
+            while ($row = $result->fetch_assoc()) {
+                $resumenOrigen[] = $row;
+            }
         }
-        $result->free();
+        $stmtResumenOrigen->close();
     }
 
     if ($stmtPagosRecientes = $conn->prepare('SELECT id, origen, referencia_id, paciente_nombre, psicologo_nombre, monto, metodo_pago, fecha_pago, observaciones FROM Pagos WHERE fecha_corte = ? ORDER BY id DESC LIMIT 50')) {
@@ -752,10 +860,17 @@ if ($tienePermisoDemo) {
     <div class="card mb-4">
         <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
             <h4 class="card-title mb-0">Citas de <?php echo htmlspecialchars($fechaVistaTitulo, ENT_QUOTES, 'UTF-8'); ?></h4>
-            <div class="btn-group btn-group-sm" role="group" aria-label="Navegacion de dias">
-                <a class="btn btn-outline-secondary" href="?fecha=<?php echo htmlspecialchars($fechaVistaAnterior, ENT_QUOTES, 'UTF-8'); ?>"><i class="fas fa-chevron-left me-1"></i>Regresar</a>
-                <a class="btn btn-outline-primary" href="?fecha=<?php echo htmlspecialchars(date('Y-m-d'), ENT_QUOTES, 'UTF-8'); ?>">Hoy</a>
-                <a class="btn btn-outline-secondary" href="?fecha=<?php echo htmlspecialchars($fechaVistaSiguiente, ENT_QUOTES, 'UTF-8'); ?>">Avanzar<i class="fas fa-chevron-right ms-1"></i></a>
+            <div class="d-flex flex-wrap gap-2">
+                <?php if ($mostrarTodosEstatusDemo): ?>
+                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo htmlspecialchars($urlOcultarEstatusDemo, ENT_QUOTES, 'UTF-8'); ?>"><i class="fas fa-eye-slash me-1"></i>Ocultar canceladas/finalizadas</a>
+                <?php else: ?>
+                    <a class="btn btn-sm btn-outline-secondary" href="<?php echo htmlspecialchars($urlMostrarTodosEstatusDemo, ENT_QUOTES, 'UTF-8'); ?>"><i class="fas fa-eye me-1"></i>Mostrar todos los estatus</a>
+                <?php endif; ?>
+                <div class="btn-group btn-group-sm" role="group" aria-label="Navegacion de dias">
+                    <a class="btn btn-outline-secondary" href="?fecha=<?php echo htmlspecialchars($fechaVistaAnterior, ENT_QUOTES, 'UTF-8'); ?>"><i class="fas fa-chevron-left me-1"></i>Regresar</a>
+                    <a class="btn btn-outline-primary" href="?fecha=<?php echo htmlspecialchars(date('Y-m-d'), ENT_QUOTES, 'UTF-8'); ?>">Hoy</a>
+                    <a class="btn btn-outline-secondary" href="?fecha=<?php echo htmlspecialchars($fechaVistaSiguiente, ENT_QUOTES, 'UTF-8'); ?>">Avanzar<i class="fas fa-chevron-right ms-1"></i></a>
+                </div>
             </div>
         </div>
         <div class="card-body">
@@ -827,7 +942,7 @@ if ($tienePermisoDemo) {
                                     <td class="text-end">
                                         <div class="d-inline-flex gap-1">
                                             <?php if (in_array($estatusNormalizado, ['creada', 'reprogramado'], true)): ?>
-                                                <button type="button" class="btn btn-outline-success py-1 px-2 demo-pay-today" data-cita="<?php echo (int) $citaHoy['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $citaHoy['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $citaHoy['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>">Pagar</button>
+                                                <button type="button" class="btn btn-outline-success py-1 px-2 demo-pay-today" data-cita="<?php echo (int) $citaHoy['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $citaHoy['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $citaHoy['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-paciente-id="<?php echo (int) $citaHoy['IdNino']; ?>" data-paciente-nombre="<?php echo htmlspecialchars((string) $citaHoy['paciente_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-psicologo-id="<?php echo (int) $citaHoy['IdUsuario']; ?>" data-psicologo-nombre="<?php echo htmlspecialchars((string) $citaHoy['psicologo_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-programado="<?php echo htmlspecialchars((string) $citaHoy['Programado'], ENT_QUOTES, 'UTF-8'); ?>" data-tiempo="<?php echo (int) ($citaHoy['Tiempo'] ?? 60); ?>" data-tipo="<?php echo htmlspecialchars((string) $citaHoy['Tipo'], ENT_QUOTES, 'UTF-8'); ?>">Pagar</button>
                                                 <form method="post" class="d-inline" onsubmit="return confirm('¿Cancelar esta cita?');">
                                                     <input type="hidden" name="accion" value="cancelar_cita">
                                                     <input type="hidden" name="cita_id" value="<?php echo (int) $citaHoy['id']; ?>">
@@ -838,7 +953,7 @@ if ($tienePermisoDemo) {
                                             <?php elseif ($estatusNormalizado === 'cancelada'): ?>
                                                 <span class="badge bg-danger"><i class="fas fa-ban me-1"></i>Cancelada</span>
                                             <?php else: ?>
-                                                <button type="button" class="btn btn-outline-success py-1 px-2 demo-pay-today" data-cita="<?php echo (int) $citaHoy['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $citaHoy['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $citaHoy['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>">Pagar</button>
+                                                <button type="button" class="btn btn-outline-success py-1 px-2 demo-pay-today" data-cita="<?php echo (int) $citaHoy['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $citaHoy['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $citaHoy['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-paciente-id="<?php echo (int) $citaHoy['IdNino']; ?>" data-paciente-nombre="<?php echo htmlspecialchars((string) $citaHoy['paciente_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-psicologo-id="<?php echo (int) $citaHoy['IdUsuario']; ?>" data-psicologo-nombre="<?php echo htmlspecialchars((string) $citaHoy['psicologo_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-programado="<?php echo htmlspecialchars((string) $citaHoy['Programado'], ENT_QUOTES, 'UTF-8'); ?>" data-tiempo="<?php echo (int) ($citaHoy['Tiempo'] ?? 60); ?>" data-tipo="<?php echo htmlspecialchars((string) $citaHoy['Tipo'], ENT_QUOTES, 'UTF-8'); ?>">Pagar</button>
                                             <?php endif; ?>
                                         </div>
                                     </td>
@@ -1255,7 +1370,7 @@ if ($tienePermisoDemo) {
                                 <select class="form-select" id="citaId" name="cita_id" required>
                                     <option value="">Selecciona cita</option>
                                     <?php foreach ($citas as $cita): ?>
-                                        <option value="<?php echo (int) $cita['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $cita['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $cita['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>">
+                                        <option value="<?php echo (int) $cita['id']; ?>" data-costo="<?php echo htmlspecialchars(number_format((float) $cita['costo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-saldo="<?php echo htmlspecialchars(number_format((float) $cita['saldo_demo'], 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" data-paciente-id="<?php echo (int) $cita['IdNino']; ?>" data-paciente-nombre="<?php echo htmlspecialchars((string) $cita['paciente_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-psicologo-id="<?php echo (int) $cita['IdUsuario']; ?>" data-psicologo-nombre="<?php echo htmlspecialchars((string) $cita['psicologo_nombre'], ENT_QUOTES, 'UTF-8'); ?>" data-programado="<?php echo htmlspecialchars((string) $cita['Programado'], ENT_QUOTES, 'UTF-8'); ?>" data-tiempo="<?php echo (int) ($cita['Tiempo'] ?? 60); ?>" data-tipo="<?php echo htmlspecialchars((string) $cita['Tipo'], ENT_QUOTES, 'UTF-8'); ?>">
                                             #<?php echo (int) $cita['id']; ?> - <?php echo htmlspecialchars((string) $cita['paciente_nombre'], ENT_QUOTES, 'UTF-8'); ?> - <?php echo htmlspecialchars((string) $cita['Programado'], ENT_QUOTES, 'UTF-8'); ?> - costo $<?php echo number_format((float) $cita['costo'], 2); ?> - saldo $<?php echo number_format((float) $cita['saldo_demo'], 2); ?>
                                         </option>
                                     <?php endforeach; ?>
@@ -1285,11 +1400,64 @@ if ($tienePermisoDemo) {
                                 <label class="form-label" for="citaObservaciones">Observaciones</label>
                                 <input type="text" class="form-control" id="citaObservaciones" name="observaciones" maxlength="255" placeholder="Opcional">
                             </div>
+                            <div class="col-12">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="citaImprimirTicket" name="imprimir_ticket" value="1" checked>
+                                    <label class="form-check-label" for="citaImprimirTicket">Imprimir ticket y agregar a la cola de impresion</label>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                         <button type="submit" class="btn btn-success">Registrar pago demo</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="modalProximaCitaDemo" tabindex="-1" aria-labelledby="modalProximaCitaDemoLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <form method="post" id="formProximaCitaDemo">
+                    <input type="hidden" name="accion" value="registrar_cita">
+                    <input type="hidden" name="paciente_id" id="proximaPacienteIdDemo" value="<?php echo $proximaCitaDemo ? (int) $proximaCitaDemo['paciente_id'] : 0; ?>">
+                    <input type="hidden" name="psicologo_id" id="proximaPsicologoIdDemo" value="<?php echo $proximaCitaDemo ? (int) $proximaCitaDemo['psicologo_id'] : 0; ?>">
+                    <input type="hidden" name="tipo" id="proximaTipoDemo" value="<?php echo htmlspecialchars((string) ($proximaCitaDemo['tipo'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="modalProximaCitaDemoLabel"><i class="far fa-calendar-plus me-2"></i>Agendar proxima cita</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                    </div>
+                    <div class="modal-body">
+                        <?php if ($mensajeDemo): ?>
+                            <div class="alert alert-<?php echo htmlspecialchars($tipoMensajeDemo, ENT_QUOTES, 'UTF-8'); ?> py-2"><?php echo htmlspecialchars($mensajeDemo, ENT_QUOTES, 'UTF-8'); ?></div>
+                        <?php endif; ?>
+                        <p class="mb-3">Deseas agendar una cita para la proxima semana en el mismo horario? Puedes ajustar los datos antes de confirmar.</p>
+                        <div class="mb-3">
+                            <label class="form-label" for="proximaPacienteNombreDemo">Paciente</label>
+                            <input type="text" class="form-control" id="proximaPacienteNombreDemo" value="<?php echo htmlspecialchars((string) ($proximaCitaDemo['paciente_nombre'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="proximaPsicologoNombreDemo">Psicologo</label>
+                            <input type="text" class="form-control" id="proximaPsicologoNombreDemo" value="<?php echo htmlspecialchars((string) ($proximaCitaDemo['psicologo_nombre'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="proximaFechaDemo">Fecha sugerida</label>
+                            <input type="datetime-local" class="form-control" id="proximaFechaDemo" name="programado" step="3600" value="<?php echo htmlspecialchars((string) ($proximaCitaDemo['programado'] ?? ''), ENT_QUOTES, 'UTF-8'); ?>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="proximaCostoDemo">Costo</label>
+                            <input type="number" class="form-control" id="proximaCostoDemo" name="costo" min="0" step="0.01" value="<?php echo htmlspecialchars(number_format((float) ($proximaCitaDemo['costo'] ?? 0), 2, '.', ''), ENT_QUOTES, 'UTF-8'); ?>" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label" for="proximaTiempoDemo">Tiempo (minutos)</label>
+                            <input type="number" class="form-control" id="proximaTiempoDemo" name="tiempo" min="1" step="1" value="<?php echo (int) ($proximaCitaDemo['tiempo'] ?? 60); ?>" required>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" id="omitirProximaCitaDemo" data-bs-dismiss="modal">Omitir</button>
+                        <button type="submit" class="btn btn-primary">Agendar cita</button>
                     </div>
                 </form>
             </div>
@@ -1327,7 +1495,7 @@ if ($tienePermisoDemo) {
     <div class="row g-3 mb-4">
         <div class="col-lg-6">
             <div class="card h-100">
-                <div class="card-header"><h4 class="card-title mb-0">Totales por metodo</h4></div>
+                <div class="card-header"><h4 class="card-title mb-0">Totales por metodo del dia</h4></div>
                 <div class="card-body">
                     <?php if ($resumenMetodo === []): ?>
                         <div class="text-muted">Sin pagos registrados.</div>
@@ -1344,7 +1512,7 @@ if ($tienePermisoDemo) {
         </div>
         <div class="col-lg-6">
             <div class="card h-100">
-                <div class="card-header"><h4 class="card-title mb-0">Totales por origen</h4></div>
+                <div class="card-header"><h4 class="card-title mb-0">Totales por origen del dia</h4></div>
                 <div class="card-body">
                     <?php if ($resumenOrigen === []): ?>
                         <div class="text-muted">Sin pagos registrados.</div>
@@ -1793,9 +1961,26 @@ if ($tienePermisoDemo) {
                     option.value = button.dataset.cita;
                     option.dataset.costo = button.dataset.costo || '0';
                     option.dataset.saldo = button.dataset.saldo || '0';
-                    option.textContent = '#' + button.dataset.cita + ' - cita de hoy';
+                    option.dataset.pacienteId = button.dataset.pacienteId || '';
+                    option.dataset.pacienteNombre = button.dataset.pacienteNombre || '';
+                    option.dataset.psicologoId = button.dataset.psicologoId || '';
+                    option.dataset.psicologoNombre = button.dataset.psicologoNombre || '';
+                    option.dataset.programado = button.dataset.programado || '';
+                    option.dataset.tiempo = button.dataset.tiempo || '60';
+                    option.dataset.tipo = button.dataset.tipo || '';
+                    option.textContent = '#' + button.dataset.cita + ' - ' + (button.dataset.pacienteNombre || 'cita de hoy');
                     citaSelect.appendChild(option);
                     citaSelect.value = button.dataset.cita;
+                }
+                const selectedOption = citaSelect.options[citaSelect.selectedIndex];
+                if (selectedOption && selectedOption.value) {
+                    selectedOption.dataset.pacienteId = selectedOption.dataset.pacienteId || button.dataset.pacienteId || '';
+                    selectedOption.dataset.pacienteNombre = selectedOption.dataset.pacienteNombre || button.dataset.pacienteNombre || '';
+                    selectedOption.dataset.psicologoId = selectedOption.dataset.psicologoId || button.dataset.psicologoId || '';
+                    selectedOption.dataset.psicologoNombre = selectedOption.dataset.psicologoNombre || button.dataset.psicologoNombre || '';
+                    selectedOption.dataset.programado = selectedOption.dataset.programado || button.dataset.programado || '';
+                    selectedOption.dataset.tiempo = selectedOption.dataset.tiempo || button.dataset.tiempo || '60';
+                    selectedOption.dataset.tipo = selectedOption.dataset.tipo || button.dataset.tipo || '';
                 }
                 updateCitaResumen();
                 const pagoModalElement = document.getElementById('modalPagoCitaDemo');
@@ -1844,6 +2029,13 @@ if ($tienePermisoDemo) {
                 }
             });
         });
+
+        <?php if ($proximaCitaDemo !== null): ?>
+        const proximaModalElement = document.getElementById('modalProximaCitaDemo');
+        if (proximaModalElement && window.bootstrap) {
+            bootstrap.Modal.getOrCreateInstance(proximaModalElement, { backdrop: 'static', keyboard: false }).show();
+        }
+        <?php endif; ?>
 
         if (window.jQuery && window.jQuery.fn && typeof window.jQuery.fn.DataTable === 'function') {
             ['#tablaDemoCitasHoy', '#tablaDemoPagos', '#tablaDemoSaldo'].forEach(function (selector) {
