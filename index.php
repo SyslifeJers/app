@@ -1,10 +1,16 @@
 <?php
+ob_start();
 
 include 'Modulos/head.php';
+require_once __DIR__ . '/Modulos/resumen_pagos.php';
+require_once __DIR__ . '/Modulos/saldo_pacientes.php';
 
 $rolUsuario = $_SESSION['rol'] ?? 0;
 $esAdministrador = (int) $rolUsuario === 3;
+$puedeRegistrarPagoSinCita = in_array((int) $rolUsuario, [1, 3], true);
 $tutoresPagoSinCita = [];
+$historialPacientesInicio = [];
+$agendaPsicologosInicio = [];
 $zonaHorariaApp = new DateTimeZone('America/Mexico_City');
 $fechaCorteHoy = (new DateTime('now', $zonaHorariaApp))->format('Y-m-d');
 $fechaCorteHoyTexto = DateTime::createFromFormat('Y-m-d', $fechaCorteHoy, $zonaHorariaApp);
@@ -14,6 +20,42 @@ unset($_SESSION['corte_caja_mensaje']);
 
 $requiereEfectivoInicial = false;
 $efectivoInicialRegistrado = null;
+
+function registrarPagoInicio(mysqli $conn, array $data): int
+{
+    $stmt = $conn->prepare('INSERT INTO Pagos (origen, referencia_id, cita_id, paquete_id, paciente_id, paciente_nombre, psicologo_id, psicologo_nombre, monto, metodo_pago, fecha_pago, fecha_corte, registrado_por, observaciones) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    if (!$stmt) {
+        throw new RuntimeException('No fue posible preparar el pago.');
+    }
+
+    $stmt->bind_param(
+        'siiiisisdsssis',
+        $data['origen'],
+        $data['referencia_id'],
+        $data['cita_id'],
+        $data['paquete_id'],
+        $data['paciente_id'],
+        $data['paciente_nombre'],
+        $data['psicologo_id'],
+        $data['psicologo_nombre'],
+        $data['monto'],
+        $data['metodo_pago'],
+        $data['fecha_pago'],
+        $data['fecha_corte'],
+        $data['registrado_por'],
+        $data['observaciones']
+    );
+
+    if (!$stmt->execute()) {
+        $stmt->close();
+        throw new RuntimeException('No fue posible guardar el pago.');
+    }
+
+    $pagoId = (int) $conn->insert_id;
+    $stmt->close();
+
+    return $pagoId;
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'registrar_efectivo_inicial') {
     $fechaEfectivo = trim((string) ($_POST['fecha_efectivo'] ?? ''));
@@ -87,6 +129,104 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'registrar_pago_sin_cita') {
+    $mensaje = ['tipo' => 'danger', 'texto' => 'No fue posible registrar el pago sin cita.'];
+
+    try {
+        if (!$puedeRegistrarPagoSinCita) {
+            throw new RuntimeException('Solo administración o ventas pueden registrar pagos sin cita.');
+        }
+
+        $tutorId = isset($_POST['tutor_id']) ? (int) $_POST['tutor_id'] : 0;
+        $pacienteId = isset($_POST['paciente_id']) ? (int) $_POST['paciente_id'] : 0;
+        $metodoPago = isset($_POST['metodo_pago']) ? substr(trim((string) $_POST['metodo_pago']), 0, 50) : '';
+        $monto = isset($_POST['monto']) ? (float) $_POST['monto'] : 0.0;
+        $observaciones = isset($_POST['observaciones']) ? substr(trim((string) $_POST['observaciones']), 0, 255) : '';
+
+        if ($tutorId <= 0 || $pacienteId <= 0 || $metodoPago === '' || $monto <= 0) {
+            throw new RuntimeException('Selecciona tutor, paciente, método de pago y monto mayor a cero.');
+        }
+
+        $stmtPacientePago = $conn->prepare('SELECT id, name FROM nino WHERE id = ? AND idtutor = ? AND activo = 1 LIMIT 1');
+        if (!$stmtPacientePago) {
+            throw new RuntimeException('No fue posible validar el paciente.');
+        }
+        $stmtPacientePago->bind_param('ii', $pacienteId, $tutorId);
+        $stmtPacientePago->execute();
+        $resultadoPacientePago = $stmtPacientePago->get_result();
+        $pacientePago = $resultadoPacientePago ? $resultadoPacientePago->fetch_assoc() : null;
+        $stmtPacientePago->close();
+
+        if (!is_array($pacientePago)) {
+            throw new RuntimeException('El paciente seleccionado no corresponde al tutor.');
+        }
+
+        $fechaPago = (new DateTime('now', $zonaHorariaApp))->format('Y-m-d H:i:s');
+        $notaPago = $observaciones !== '' ? $observaciones : 'Pago sin cita';
+        $saldoAnterior = obtenerSaldoPaciente($conn, $pacienteId);
+
+        $conn->begin_transaction();
+
+        $datosPagoSinCita = [
+            'origen' => 'sin_cita',
+            'referencia_id' => $tutorId,
+            'cita_id' => null,
+            'paquete_id' => null,
+            'paciente_id' => $pacienteId,
+            'paciente_nombre' => substr((string) $pacientePago['name'], 0, 150),
+            'psicologo_id' => null,
+            'psicologo_nombre' => null,
+            'monto' => $monto,
+            'metodo_pago' => $metodoPago,
+            'fecha_pago' => $fechaPago,
+            'fecha_corte' => $fechaCorteHoy,
+            'registrado_por' => isset($_SESSION['id']) ? (int) $_SESSION['id'] : null,
+            'observaciones' => $notaPago,
+        ];
+
+        $pagoId = registrarPagoInicio($conn, $datosPagoSinCita);
+
+        registrarResumenPago($conn, $datosPagoSinCita);
+
+        if (!ajustarSaldoPaciente($conn, $pacienteId, $monto)) {
+            throw new RuntimeException('No fue posible actualizar el saldo del paciente.');
+        }
+
+        $saldoNuevo = $saldoAnterior + $monto;
+        try {
+            if ($stmtSaldo = $conn->prepare('INSERT INTO SaldoMovimientos (paciente_id, tipo, monto, saldo_anterior, saldo_nuevo, pago_id, cita_id, paquete_id, registrado_por, observaciones) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)')) {
+                $tipoMovimiento = $saldoAnterior < -0.0001 ? 'abono_adeudo' : 'agregar_saldo';
+                $usuarioMovimiento = isset($_SESSION['id']) ? (int) $_SESSION['id'] : null;
+                $stmtSaldo->bind_param('isdddiis', $pacienteId, $tipoMovimiento, $monto, $saldoAnterior, $saldoNuevo, $pagoId, $usuarioMovimiento, $notaPago);
+                $stmtSaldo->execute();
+                $stmtSaldo->close();
+            }
+        } catch (Throwable $saldoLogError) {
+            error_log('index.php pago sin cita: no se pudo registrar SaldoMovimientos: ' . $saldoLogError->getMessage());
+        }
+
+        $conn->commit();
+        $mensaje = [
+            'tipo' => 'success',
+            'texto' => $saldoAnterior < -0.0001
+                ? 'Pago sin cita registrado. Se abonó al adeudo y el excedente quedó como saldo disponible.'
+                : 'Pago sin cita registrado como saldo disponible.',
+        ];
+    } catch (Throwable $e) {
+        if ($conn instanceof mysqli) {
+            try {
+                $conn->rollback();
+            } catch (Throwable $rollbackError) {
+            }
+        }
+        $mensaje['texto'] = $e->getMessage();
+    }
+
+    $_SESSION['corte_caja_mensaje'] = $mensaje;
+    header('Location: index.php');
+    exit;
+}
+
 $stmtEfectivoHoy = $conn->prepare('SELECT efectivo_inicial FROM CorteCaja WHERE fecha = ? LIMIT 1');
 if ($stmtEfectivoHoy instanceof mysqli_stmt) {
     $stmtEfectivoHoy->bind_param('s', $fechaCorteHoy);
@@ -110,14 +250,19 @@ $mensajeCancelacion = $_SESSION['cancelacion_mensaje'] ?? null;
 $tipoCancelacion = $_SESSION['cancelacion_tipo'] ?? 'success';
 unset($_SESSION['cancelacion_mensaje'], $_SESSION['cancelacion_tipo']);
 
-$tablaSolicitudesExiste = false;
-if ($resultadoTabla = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'")) {
-    $tablaSolicitudesExiste = $resultadoTabla->num_rows > 0;
-    $resultadoTabla->free();
-}
-
 $pendientesReprogramacion = 0;
 $pendientesCancelacion = 0;
+$tablaSolicitudesExiste = false;
+try {
+    if ($stmtSolicitudExiste = $conn->prepare('SELECT 1 FROM SolicitudReprogramacion LIMIT 1')) {
+        $stmtSolicitudExiste->execute();
+        $stmtSolicitudExiste->close();
+        $tablaSolicitudesExiste = true;
+    }
+} catch (Throwable $solicitudesError) {
+    error_log('index.php: no se pudo consultar SolicitudReprogramacion: ' . $solicitudesError->getMessage());
+}
+
 if ($tablaSolicitudesExiste && in_array($rolUsuario, [3, 5])) {
     if ($stmtPendientes = $conn->prepare("SELECT tipo, COUNT(*) FROM SolicitudReprogramacion WHERE estatus = 'pendiente' GROUP BY tipo")) {
         $stmtPendientes->execute();
@@ -170,11 +315,48 @@ if ($stmtReunionesProgramadas = $conn->prepare($sqlReunionesProgramadas)) {
 
 $reunionesProgramadasTotal = count($reunionesProgramadas);
 
-if ($esAdministrador && $resultadoTutoresPagoSinCita = $conn->query("SELECT c.id AS tutor_id, c.name AS tutor_nombre, n.id AS paciente_id, n.name AS paciente_nombre, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM Clientes c INNER JOIN nino n ON n.idtutor = c.id WHERE c.activo = 1 AND n.activo = 1 ORDER BY c.name ASC, n.name ASC LIMIT 1000")) {
+if ($puedeRegistrarPagoSinCita && $resultadoTutoresPagoSinCita = $conn->query("SELECT c.id AS tutor_id, c.name AS tutor_nombre, n.id AS paciente_id, n.name AS paciente_nombre, COALESCE(n.saldo_paquete, 0) AS saldo_demo FROM Clientes c INNER JOIN nino n ON n.idtutor = c.id WHERE c.activo = 1 AND n.activo = 1 ORDER BY n.name ASC, c.name ASC LIMIT 1000")) {
     while ($tutorPagoSinCita = $resultadoTutoresPagoSinCita->fetch_assoc()) {
         $tutoresPagoSinCita[] = $tutorPagoSinCita;
     }
     $resultadoTutoresPagoSinCita->free();
+}
+
+if ($resultadoHistorialInicio = $conn->query("SELECT ci.id, ci.IdNino, ci.costo, ci.Programado, ci.Tipo, es.name AS estatus_nombre, u.name AS psicologo_nombre FROM Cita ci INNER JOIN Estatus es ON es.id = ci.Estatus INNER JOIN Usuarios u ON u.id = ci.IdUsuario ORDER BY ci.IdNino ASC, ci.Programado DESC LIMIT 3000")) {
+    while ($row = $resultadoHistorialInicio->fetch_assoc()) {
+        $pacienteKey = (string) (int) $row['IdNino'];
+        if (!isset($historialPacientesInicio[$pacienteKey])) {
+            $historialPacientesInicio[$pacienteKey] = [];
+        }
+        if (count($historialPacientesInicio[$pacienteKey]) < 10) {
+            $historialPacientesInicio[$pacienteKey][] = [
+                'id' => (int) $row['id'],
+                'programado' => (string) $row['Programado'],
+                'tipo' => (string) $row['Tipo'],
+                'estatus' => (string) $row['estatus_nombre'],
+                'psicologo' => (string) $row['psicologo_nombre'],
+                'costo' => (float) $row['costo'],
+            ];
+        }
+    }
+    $resultadoHistorialInicio->free();
+}
+
+if ($resultadoAgendaInicio = $conn->query("SELECT ci.id, ci.IdUsuario, ci.Programado, COALESCE(ci.Tiempo, 60) AS Tiempo, es.name AS estatus_nombre, n.name AS paciente_nombre FROM Cita ci INNER JOIN Estatus es ON es.id = ci.Estatus INNER JOIN nino n ON n.id = ci.IdNino WHERE ci.Programado >= NOW() AND ci.Programado < DATE_ADD(CURDATE(), INTERVAL 8 DAY) AND LOWER(es.name) <> 'cancelada' ORDER BY ci.Programado ASC LIMIT 3000")) {
+    while ($row = $resultadoAgendaInicio->fetch_assoc()) {
+        $psicologoKey = (string) (int) $row['IdUsuario'];
+        if (!isset($agendaPsicologosInicio[$psicologoKey])) {
+            $agendaPsicologosInicio[$psicologoKey] = [];
+        }
+        $agendaPsicologosInicio[$psicologoKey][] = [
+            'id' => (int) $row['id'],
+            'programado' => (string) $row['Programado'],
+            'tiempo' => (int) $row['Tiempo'],
+            'estatus' => (string) $row['estatus_nombre'],
+            'paciente' => (string) $row['paciente_nombre'],
+        ];
+    }
+    $resultadoAgendaInicio->free();
 }
 ?>
 
@@ -432,8 +614,8 @@ $result = $stmt->get_result();
               echo '<tr>';
               echo '<td>' . $row['Fecha'] . '</td>';
               echo '<td>' . $row['id'] . '</td>';
-              echo '<td>' . $row['name'] . '</td>';
-              echo '<td>' . $row['Psicologo'] . '</td>';
+              echo '<td><a href="#" class="inicio-open-patient-history" data-paciente-id="' . (int) $row['paciente_id'] . '" data-paciente-nombre="' . htmlspecialchars((string) $row['name'], ENT_QUOTES, 'UTF-8') . '" title="Ver historial top 10">' . htmlspecialchars((string) $row['name'], ENT_QUOTES, 'UTF-8') . '</a></td>';
+              echo '<td><a href="#" class="inicio-open-psych-availability" data-psicologo-id="' . (int) $row['PsicologoId'] . '" data-psicologo-nombre="' . htmlspecialchars((string) $row['Psicologo'], ENT_QUOTES, 'UTF-8') . '" title="Ver disponibilidad">' . htmlspecialchars((string) $row['Psicologo'], ENT_QUOTES, 'UTF-8') . '</a></td>';
               echo '<td>' . $row['costo'] . '</td>';
               echo '<td>' . $row['Hora'] . '</td>';
               echo '<td>' . $row['Tipo'] . '</td>';
@@ -460,7 +642,7 @@ $result = $stmt->get_result();
   </div>
 </div>
 
-<?php if ($esAdministrador): ?>
+<?php if ($puedeRegistrarPagoSinCita): ?>
 <style>
   .floating-payment-no-appointment {
     position: fixed;
@@ -481,7 +663,7 @@ $result = $stmt->get_result();
 <div class="modal fade" id="modalPagoSinCitaInicio" tabindex="-1" aria-labelledby="modalPagoSinCitaInicioLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
-      <form method="post" action="/PagosDemo/index.php">
+      <form method="post">
         <input type="hidden" name="accion" value="registrar_pago_sin_cita">
         <div class="modal-header">
           <h5 class="modal-title" id="modalPagoSinCitaInicioLabel"><i class="fas fa-receipt me-2"></i>Pago sin cita</h5>
@@ -493,19 +675,14 @@ $result = $stmt->get_result();
           </div>
           <div class="row g-3">
             <div class="col-md-6">
-              <label class="form-label" for="inicioPagoSinCitaBuscar">Buscar tutor</label>
-              <input type="search" class="form-control" id="inicioPagoSinCitaBuscar" placeholder="Escribe el nombre del tutor">
-            </div>
-            <div class="col-md-6">
-              <label class="form-label" for="inicioPagoSinCitaTutor">Tutor</label>
-              <select class="form-select" id="inicioPagoSinCitaTutor" name="tutor_id" required>
-                <option value="">Selecciona tutor</option>
-              </select>
+              <label class="form-label" for="inicioPagoSinCitaBuscar">Buscar paciente</label>
+              <input type="search" class="form-control" id="inicioPagoSinCitaBuscar" placeholder="Escribe el nombre del paciente">
             </div>
             <div class="col-12">
               <label class="form-label" for="inicioPagoSinCitaPaciente">Paciente a acreditar</label>
+              <input type="hidden" id="inicioPagoSinCitaTutor" name="tutor_id" value="">
               <select class="form-select" id="inicioPagoSinCitaPaciente" name="paciente_id" required>
-                <option value="">Selecciona primero un tutor</option>
+                <option value="">Selecciona paciente</option>
               </select>
               <div class="form-text" id="inicioPagoSinCitaSaldoTexto">El saldo estimado se mostrara al elegir paciente y monto.</div>
             </div>
@@ -539,13 +716,13 @@ $result = $stmt->get_result();
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     var input = document.getElementById('inicioPagoSinCitaBuscar');
-    var tutorSelect = document.getElementById('inicioPagoSinCitaTutor');
+    var tutorInput = document.getElementById('inicioPagoSinCitaTutor');
     var select = document.getElementById('inicioPagoSinCitaPaciente');
     var montoInput = document.getElementById('inicioPagoSinCitaMonto');
     var saldoTexto = document.getElementById('inicioPagoSinCitaSaldoTexto');
     var tutores = <?php echo json_encode($tutoresPagoSinCita, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
     var currency = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
-    if (!input || !tutorSelect || !select) {
+    if (!input || !tutorInput || !select) {
       return;
     }
 
@@ -558,32 +735,40 @@ $result = $stmt->get_result();
       return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     }
 
-    function renderTutores(query) {
+    function renderPacientes(query) {
       var normalizedQuery = normalizeSearch(query);
-      var tutorMap = new Map();
+      var currentValue = select.value;
+      var hasCurrentValue = false;
+
+      select.innerHTML = '<option value="">Selecciona paciente</option>';
       tutores.forEach(function (item) {
-        var tutorId = String(item.tutor_id || '');
-        if (!tutorId || tutorMap.has(tutorId)) {
-          return;
-        }
+        var pacienteId = String(item.paciente_id || '');
+        var pacienteNombre = String(item.paciente_nombre || 'Paciente sin nombre');
         var tutorNombre = String(item.tutor_nombre || 'Tutor sin nombre');
-        if (normalizedQuery !== '' && normalizeSearch(tutorNombre).indexOf(normalizedQuery) === -1) {
+        var textoBusqueda = pacienteNombre + ' ' + tutorNombre;
+
+        if (!pacienteId || (normalizedQuery !== '' && normalizeSearch(textoBusqueda).indexOf(normalizedQuery) === -1)) {
           return;
         }
-        tutorMap.set(tutorId, tutorNombre);
+
+        var option = document.createElement('option');
+        option.value = pacienteId;
+        option.dataset.tutorId = String(item.tutor_id || '');
+        option.dataset.saldo = String(item.saldo_demo || 0);
+        option.textContent = pacienteNombre + ' - tutor ' + tutorNombre + ' - saldo ' + currency.format(toNumber(item.saldo_demo));
+        select.appendChild(option);
+
+        if (pacienteId === currentValue) {
+          hasCurrentValue = true;
+        }
       });
 
-      var currentValue = tutorSelect.value;
-      tutorSelect.innerHTML = '<option value="">Selecciona tutor</option>';
-      tutorMap.forEach(function (nombre, id) {
-        var option = document.createElement('option');
-        option.value = id;
-        option.textContent = nombre + ' #' + id;
-        tutorSelect.appendChild(option);
-      });
-      if (currentValue && tutorMap.has(currentValue)) {
-        tutorSelect.value = currentValue;
+      if (currentValue && hasCurrentValue) {
+        select.value = currentValue;
+      } else {
+        tutorInput.value = '';
       }
+      updateSaldoTexto();
     }
 
     function updateSaldoTexto() {
@@ -600,36 +785,217 @@ $result = $stmt->get_result();
       saldoTexto.textContent = 'Saldo actual: ' + currency.format(saldoActual) + ' | Pago: +' + currency.format(monto) + ' | Saldo final: ' + currency.format(saldoActual + monto);
     }
 
-    function updatePacientes() {
-      var tutorId = tutorSelect.value;
-      select.innerHTML = tutorId ? '<option value="">Selecciona paciente</option>' : '<option value="">Selecciona primero un tutor</option>';
-      tutores.forEach(function (item) {
-        if (String(item.tutor_id || '') !== tutorId) {
-          return;
-        }
-        var option = document.createElement('option');
-        option.value = item.paciente_id;
-        option.dataset.saldo = String(item.saldo_demo || 0);
-        option.textContent = String(item.paciente_nombre || 'Paciente sin nombre') + ' - saldo ' + currency.format(toNumber(item.saldo_demo));
-        select.appendChild(option);
-      });
+    function updatePacienteSeleccionado() {
+      var option = select.options[select.selectedIndex];
+      tutorInput.value = option && option.value ? String(option.dataset.tutorId || '') : '';
       updateSaldoTexto();
     }
 
     input.addEventListener('input', function () {
-      renderTutores(input.value);
-      updatePacientes();
+      renderPacientes(input.value);
     });
-    tutorSelect.addEventListener('change', updatePacientes);
-    select.addEventListener('change', updateSaldoTexto);
+    select.addEventListener('change', updatePacienteSeleccionado);
     if (montoInput) {
       montoInput.addEventListener('input', updateSaldoTexto);
       montoInput.addEventListener('change', updateSaldoTexto);
     }
-    renderTutores('');
+    renderPacientes('');
   });
 </script>
 <?php endif; ?>
+
+<style>
+  .inicio-availability-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+  }
+  .inicio-availability-day {
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #fff;
+  }
+  .inicio-availability-day-header {
+    background: #f8fafc;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 10px 12px;
+    font-weight: 700;
+  }
+  .inicio-availability-slot {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 12px;
+  }
+  .inicio-availability-slot.available {
+    background: #f0fdf4;
+    color: #166534;
+  }
+  .inicio-availability-slot.busy {
+    background: #fff7ed;
+    color: #9a3412;
+  }
+</style>
+
+<div class="modal fade" id="modalInicioHistorialPaciente" tabindex="-1" aria-labelledby="modalInicioHistorialPacienteLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalInicioHistorialPacienteLabel">Historial de citas</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modalInicioHistorialPacienteBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="modalInicioDisponibilidadPsicologa" tabindex="-1" aria-labelledby="modalInicioDisponibilidadPsicologaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalInicioDisponibilidadPsicologaLabel">Disponibilidad de psicóloga</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="modalInicioDisponibilidadPsicologaBody"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    var historialPacientesInicio = <?php echo json_encode($historialPacientesInicio, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    var agendaPsicologosInicio = <?php echo json_encode($agendaPsicologosInicio, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES); ?>;
+    var currency = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function parseLocalDateTime(value) {
+      var date = new Date(String(value || '').replace(' ', 'T'));
+      return Number.isNaN(date.getTime()) ? null : date;
+    }
+
+    function pad2(value) {
+      return String(value).padStart(2, '0');
+    }
+
+    function dateKey(date) {
+      return date.getFullYear() + '-' + pad2(date.getMonth() + 1) + '-' + pad2(date.getDate());
+    }
+
+    function formatDateTime(value) {
+      var date = parseLocalDateTime(value);
+      return date ? date.toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' }) : String(value || '-');
+    }
+
+    function formatHour(hour) {
+      var date = new Date(2000, 0, 1, hour, 0, 0);
+      return date.toLocaleTimeString('es-MX', { hour: 'numeric', minute: '2-digit', hour12: true });
+    }
+
+    function renderHistory(items) {
+      if (!Array.isArray(items) || items.length === 0) {
+        return '<div class="text-muted">Sin historial reciente para este paciente.</div>';
+      }
+      return '<div class="list-group list-group-flush">' + items.map(function (item) {
+        return '<div class="list-group-item px-0">'
+          + '<div class="d-flex justify-content-between gap-3">'
+          + '<div><div class="fw-semibold"><i class="fas fa-user-md me-2 text-primary"></i>' + escapeHtml(item.psicologo || 'Sin psicóloga') + '</div>'
+          + '<div class="small text-muted">#' + escapeHtml(item.id) + ' · ' + escapeHtml(item.tipo || '-') + ' · ' + formatDateTime(item.programado) + '</div></div>'
+          + '<div class="text-end"><span class="badge bg-light text-dark border">' + escapeHtml(item.estatus || 'Sin estatus') + '</span>'
+          + '<div class="small fw-semibold mt-1">' + currency.format(Number(item.costo || 0)) + '</div></div>'
+          + '</div></div>';
+      }).join('') + '</div>';
+    }
+
+    function renderAvailability(items) {
+      var busyBySlot = {};
+      (Array.isArray(items) ? items : []).forEach(function (item) {
+        var date = parseLocalDateTime(item.programado);
+        if (!date) {
+          return;
+        }
+        var duration = Math.max(60, Number(item.tiempo || 60));
+        var end = new Date(date.getTime() + duration * 60000);
+        for (var cursor = new Date(date); cursor < end; cursor.setHours(cursor.getHours() + 1)) {
+          busyBySlot[dateKey(cursor) + ' ' + pad2(cursor.getHours()) + ':00'] = item;
+        }
+      });
+
+      var today = new Date();
+      today.setHours(0, 0, 0, 0);
+      var cards = [];
+      for (var dayOffset = 0; dayOffset < 7; dayOffset += 1) {
+        var day = new Date(today.getTime());
+        day.setDate(today.getDate() + dayOffset);
+        var dayOfWeek = day.getDay();
+        if (dayOfWeek === 0) {
+          continue;
+        }
+        var startHour = dayOfWeek === 6 ? 9 : 12;
+        var endHour = dayOfWeek === 6 ? 14 : 20;
+        var slots = [];
+        for (var hour = startHour; hour < endHour; hour += 1) {
+          var key = dateKey(day) + ' ' + pad2(hour) + ':00';
+          var appointment = busyBySlot[key];
+          if (appointment) {
+            slots.push('<div class="inicio-availability-slot busy"><span><i class="fas fa-user-clock me-1"></i>' + formatHour(hour) + ' - ' + formatHour(hour + 1) + '</span><span class="text-end">' + escapeHtml(appointment.paciente || 'Ocupado') + '</span></div>');
+          } else {
+            slots.push('<div class="inicio-availability-slot available"><span><i class="fas fa-check-circle me-1"></i>' + formatHour(hour) + ' - ' + formatHour(hour + 1) + '</span><span>Disponible</span></div>');
+          }
+        }
+        cards.push('<div class="inicio-availability-day"><div class="inicio-availability-day-header">' + escapeHtml(day.toLocaleDateString('es-MX', { weekday: 'long', day: '2-digit', month: 'short' })) + '</div>' + slots.join('') + '</div>');
+      }
+      return '<div class="d-flex flex-wrap gap-2 mb-3"><span class="badge bg-success">Disponible</span><span class="badge bg-warning text-dark">Ocupado</span></div><div class="inicio-availability-grid">' + cards.join('') + '</div>';
+    }
+
+    document.addEventListener('click', function (event) {
+      var historyButton = event.target.closest ? event.target.closest('.inicio-open-patient-history') : null;
+      if (historyButton) {
+        var patientId = historyButton.dataset.pacienteId || '';
+        var title = document.getElementById('modalInicioHistorialPacienteLabel');
+        var body = document.getElementById('modalInicioHistorialPacienteBody');
+        if (title) {
+          title.innerHTML = '<i class="fas fa-history me-2"></i>Top 10 historial de ' + escapeHtml(historyButton.dataset.pacienteNombre || 'paciente');
+        }
+        if (body) {
+          body.innerHTML = renderHistory(historialPacientesInicio[patientId] || []);
+        }
+        new bootstrap.Modal(document.getElementById('modalInicioHistorialPaciente')).show();
+        return;
+      }
+
+      var availabilityButton = event.target.closest ? event.target.closest('.inicio-open-psych-availability') : null;
+      if (availabilityButton) {
+        var psicologoId = availabilityButton.dataset.psicologoId || '';
+        var availabilityTitle = document.getElementById('modalInicioDisponibilidadPsicologaLabel');
+        var availabilityBody = document.getElementById('modalInicioDisponibilidadPsicologaBody');
+        if (availabilityTitle) {
+          availabilityTitle.innerHTML = '<i class="far fa-calendar-alt me-2"></i>Disponibilidad de ' + escapeHtml(availabilityButton.dataset.psicologoNombre || 'psicóloga');
+        }
+        if (availabilityBody) {
+          availabilityBody.innerHTML = renderAvailability(agendaPsicologosInicio[psicologoId] || []);
+        }
+        new bootstrap.Modal(document.getElementById('modalInicioDisponibilidadPsicologa')).show();
+      }
+    });
+  });
+</script>
 
 
 

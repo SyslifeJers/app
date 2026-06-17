@@ -5,6 +5,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/helpers.php';
 
+date_default_timezone_set('America/Mexico_City');
+
 /**
  * Returns a singleton PDO connection to the primary database.
  */
@@ -30,6 +32,7 @@ function db(): PDO
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]
         );
+        $pdo->exec("SET time_zone = '-06:00'");
     } catch (PDOException $exception) {
         jsonResponse(500, [
             'status' => 'error',

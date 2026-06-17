@@ -112,14 +112,15 @@ if ((int) $pendientes > 0) {
 $conn->begin_transaction();
 
 try {
-    $stmtInsert = $conn->prepare("INSERT INTO SolicitudAjusteSaldo (nino_id, solicitado_por, monto, saldo_anterior, saldo_solicitado, comentario, estatus, fecha_solicitud) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', NOW())");
+    $fechaSolicitud = fechaMexicoActual();
+    $stmtInsert = $conn->prepare("INSERT INTO SolicitudAjusteSaldo (nino_id, solicitado_por, monto, saldo_anterior, saldo_solicitado, comentario, estatus, fecha_solicitud) VALUES (?, ?, ?, ?, ?, ?, 'pendiente', ?)");
     if ($stmtInsert === false) {
         throw new RuntimeException('No fue posible preparar el registro de la solicitud.');
     }
 
     $usuarioId = (int) $_SESSION['id'];
 
-    $stmtInsert->bind_param('iiddis', $ninoId, $usuarioId, $monto, $saldoActual, $saldoSolicitado, $comentario);
+    $stmtInsert->bind_param('iiddiss', $ninoId, $usuarioId, $monto, $saldoActual, $saldoSolicitado, $comentario, $fechaSolicitud);
 
     if (!$stmtInsert->execute()) {
         throw new RuntimeException('No fue posible registrar la solicitud.');

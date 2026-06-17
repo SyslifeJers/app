@@ -13,6 +13,28 @@ function normalizarFecha($fecha)
     return ($dt && $dt->format('Y-m-d') === $fecha) ? $fecha : '';
 }
 
+function extraerMotivoCancelacionDescripcion(string $descripcion): array
+{
+    $motivo = 'Sin motivo registrado';
+    $detalle = '';
+
+    if (preg_match('/Motivo:\s*(.*?)(?:\.\s*Detalle:|\.|$)/u', $descripcion, $coincidenciasMotivo)) {
+        $motivoExtraido = trim((string) ($coincidenciasMotivo[1] ?? ''));
+        if ($motivoExtraido !== '') {
+            $motivo = $motivoExtraido;
+        }
+    }
+
+    if (preg_match('/Detalle:\s*(.*)$/u', $descripcion, $coincidenciasDetalle)) {
+        $detalle = trim((string) ($coincidenciasDetalle[1] ?? ''));
+    }
+
+    return [
+        'motivo' => $motivo,
+        'detalle' => $detalle,
+    ];
+}
+
 if (!isset($_SESSION)) {
     session_start();
 }
@@ -206,6 +228,9 @@ $resumenTotalesPsicologo = [];
 $resumenTotalesOrigen = [];
 $resumenTotalMonto = 0.0;
 $resumenTotalMovimientos = 0;
+$cancelacionesCorte = [];
+$cancelacionesPorMotivo = [];
+$cancelacionesError = '';
 
 $condicionesResumen = [];
 $tiposResumen = '';
@@ -293,6 +318,104 @@ if ($stmtResumenPagos instanceof mysqli_stmt) {
     $stmtResumenPagos->close();
 } else {
     $resumenPagosError = 'No fue posible preparar la consulta del resumen de pagos del corte.';
+}
+
+$tablaLogsDisponible = false;
+try {
+    $resultadoLogsDisponible = $conn->query('SELECT 1 FROM LogSistema LIMIT 1');
+    if ($resultadoLogsDisponible instanceof mysqli_result) {
+        $tablaLogsDisponible = true;
+        $resultadoLogsDisponible->free();
+    }
+} catch (Throwable $logsError) {
+    $tablaLogsDisponible = false;
+}
+
+$condicionesCanceladas = ["es.name = 'Cancelada'"];
+$tiposCanceladas = '';
+$parametrosCanceladas = [];
+
+if (!empty($fechaInicio)) {
+    $condicionesCanceladas[] = 'ci.Programado >= ?';
+    $tiposCanceladas .= 's';
+    $parametrosCanceladas[] = $fechaInicio . ' 00:00:00';
+}
+
+if (!empty($fechaFin)) {
+    $condicionesCanceladas[] = 'ci.Programado <= ?';
+    $tiposCanceladas .= 's';
+    $parametrosCanceladas[] = $fechaFin . ' 23:59:59';
+}
+
+if ($psicologoSeleccionado > 0) {
+    $condicionesCanceladas[] = 'ci.IdUsuario = ?';
+    $tiposCanceladas .= 'i';
+    $parametrosCanceladas[] = $psicologoSeleccionado;
+}
+
+if ($ninoSeleccionado > 0) {
+    $condicionesCanceladas[] = 'ci.IdNino = ?';
+    $tiposCanceladas .= 'i';
+    $parametrosCanceladas[] = $ninoSeleccionado;
+}
+
+$selectDescripcionCancelacion = $tablaLogsDisponible
+    ? ",
+            COALESCE((
+                SELECT ls.descripcion
+                FROM LogSistema ls
+                WHERE ls.modulo = 'citas'
+                  AND ls.accion = 'cancelar'
+                  AND ls.entidad = 'Cita'
+                  AND ls.referencia = CAST(ci.id AS CHAR)
+                ORDER BY ls.fecha DESC, ls.id DESC
+                LIMIT 1
+            ), '') AS cancelacion_descripcion"
+    : ",
+            '' AS cancelacion_descripcion";
+
+$sqlCanceladas = "SELECT
+            ci.id,
+            n.name AS paciente,
+            us.name AS psicologo,
+            ci.Programado,
+            DATE(ci.Programado) AS Fecha,
+            TIME(ci.Programado) AS Hora,
+            ci.Tipo" . $selectDescripcionCancelacion . "
+        FROM Cita ci
+        INNER JOIN nino n      ON n.id = ci.IdNino
+        INNER JOIN Usuarios us ON us.id = ci.IdUsuario
+        INNER JOIN Estatus es  ON es.id = ci.Estatus
+        WHERE " . implode(' AND ', $condicionesCanceladas) . "
+        ORDER BY ci.Programado ASC";
+
+$stmtCanceladas = $conn->prepare($sqlCanceladas);
+if ($stmtCanceladas instanceof mysqli_stmt) {
+    if ($tiposCanceladas !== '') {
+        $stmtCanceladas->bind_param($tiposCanceladas, ...$parametrosCanceladas);
+    }
+
+    if ($stmtCanceladas->execute()) {
+        $resultadoCanceladas = $stmtCanceladas->get_result();
+        while ($filaCancelada = $resultadoCanceladas->fetch_assoc()) {
+            $motivoCancelacion = extraerMotivoCancelacionDescripcion((string) ($filaCancelada['cancelacion_descripcion'] ?? ''));
+            $filaCancelada['motivo_cancelacion'] = $motivoCancelacion['motivo'];
+            $filaCancelada['detalle_cancelacion'] = $motivoCancelacion['detalle'];
+            $cancelacionesCorte[] = $filaCancelada;
+
+            if (!isset($cancelacionesPorMotivo[$motivoCancelacion['motivo']])) {
+                $cancelacionesPorMotivo[$motivoCancelacion['motivo']] = 0;
+            }
+            $cancelacionesPorMotivo[$motivoCancelacion['motivo']]++;
+        }
+        $resultadoCanceladas->free();
+        arsort($cancelacionesPorMotivo);
+    } else {
+        $cancelacionesError = 'No fue posible consultar las citas canceladas del corte.';
+    }
+    $stmtCanceladas->close();
+} else {
+    $cancelacionesError = 'No fue posible preparar la consulta de citas canceladas del corte.';
 }
 
 $condiciones = [];
@@ -387,6 +510,31 @@ if ($stmt === false) {
     $result = $stmt->get_result();
 }
 ?>
+
+<style>
+    .corte-scroll-table {
+        max-height: 420px;
+        overflow: auto;
+        border: 1px solid #e5e7eb;
+        border-radius: 10px;
+    }
+
+    .corte-scroll-table table {
+        min-width: 900px;
+    }
+
+    .corte-scroll-table thead th {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: #fff;
+        box-shadow: 0 1px 0 #e5e7eb;
+    }
+
+    .corte-scroll-table-lg {
+        max-height: 560px;
+    }
+</style>
 
 <div class="row">
     <div class="col-md-12">
@@ -579,7 +727,7 @@ if ($stmt === false) {
                             </div>
                         </div>
 
-                        <div class="table-responsive">
+                        <div class="table-responsive corte-scroll-table">
                             <table class="table table-sm align-middle mb-0">
                                 <thead>
                                     <tr>
@@ -618,7 +766,78 @@ if ($stmt === false) {
                     <?php endif; ?>
                 </div>
 
-                <div class="table-responsive">
+                <div class="border rounded-3 p-3 mb-4 bg-white">
+                    <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-md-between gap-2 mb-3">
+                        <div>
+                            <h5 class="mb-1">Canceladas y razones</h5>
+                            <div class="text-muted small">Citas canceladas en el periodo seleccionado.</div>
+                        </div>
+                        <div class="text-md-end">
+                            <div class="small text-muted">Total canceladas</div>
+                            <div class="fs-5 fw-bold"><?php echo count($cancelacionesCorte); ?></div>
+                        </div>
+                    </div>
+
+                    <?php if ($cancelacionesError !== ''): ?>
+                        <div class="alert alert-warning mb-0"><?php echo htmlspecialchars($cancelacionesError, ENT_QUOTES, 'UTF-8'); ?></div>
+                    <?php else: ?>
+                        <div class="row g-3 mb-3">
+                            <div class="col-lg-4">
+                                <div class="border rounded-3 p-3 h-100 bg-light">
+                                    <h6 class="mb-3">Resumen por razón</h6>
+                                    <?php if ($cancelacionesPorMotivo === []): ?>
+                                        <div class="text-muted small">Sin cancelaciones en este periodo.</div>
+                                    <?php else: ?>
+                                        <?php foreach ($cancelacionesPorMotivo as $motivoResumen => $totalMotivo): ?>
+                                            <div class="d-flex justify-content-between gap-3 small mb-2">
+                                                <span><?php echo htmlspecialchars($motivoResumen, ENT_QUOTES, 'UTF-8'); ?></span>
+                                                <span class="fw-semibold"><?php echo (int) $totalMotivo; ?></span>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                            <div class="col-lg-8">
+                                <div class="table-responsive corte-scroll-table">
+                                    <table class="table table-sm align-middle mb-0">
+                                        <thead>
+                                            <tr>
+                                                <th>Fecha</th>
+                                                <th>Hora</th>
+                                                <th>Cita</th>
+                                                <th>Paciente</th>
+                                                <th>Psicóloga</th>
+                                                <th>Razón</th>
+                                                <th>Detalle</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php if ($cancelacionesCorte === []): ?>
+                                                <tr>
+                                                    <td colspan="7" class="text-muted">No hay citas canceladas en el periodo seleccionado.</td>
+                                                </tr>
+                                            <?php else: ?>
+                                                <?php foreach ($cancelacionesCorte as $filaCancelada): ?>
+                                                    <tr>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['Fecha'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['Hora'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                        <td>#<?php echo (int) ($filaCancelada['id'] ?? 0); ?></td>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['paciente'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['psicologo'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['motivo_cancelacion'] ?? 'Sin motivo registrado'), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                        <td><?php echo htmlspecialchars((string) ($filaCancelada['detalle_cancelacion'] ?? ''), ENT_QUOTES, 'UTF-8'); ?></td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="table-responsive corte-scroll-table corte-scroll-table-lg">
 
                     <?php
                     if ($result && $result->num_rows > 0) {

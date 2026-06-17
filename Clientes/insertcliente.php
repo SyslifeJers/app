@@ -57,8 +57,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     }
 
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO `Clientes`(`id`, `name`, `activo`, `fecha`, `telefono`, `correo`, `tipo`) VALUES (null,?,1,NOW(),?,?,0)");
-    $stmt->bind_param("sss", $name,  $telefonoComparacion, $correo);
+    $fechaRegistro = fechaMexicoActual();
+    $stmt = $conn->prepare("INSERT INTO `Clientes`(`id`, `name`, `activo`, `fecha`, `telefono`, `correo`, `tipo`) VALUES (null,?,1,?,?,?,0)");
+    $stmt->bind_param("ssss", $name, $fechaRegistro, $telefonoComparacion, $correo);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {

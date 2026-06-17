@@ -64,6 +64,35 @@ function finalizarRespuesta($success, $mensaje, $tipo = 'success', array $extra 
     exit;
 }
 
+function normalizarMotivoCancelacion(string $motivo, string $detalle): array
+{
+    $motivosPermitidos = [
+        'Enfermedad del paciente',
+        'Emergencia familiar',
+        'Problemas de transporte',
+        'Cambio de horario',
+        'No confirmó asistencia',
+        'Decisión del tutor/paciente',
+        'Otros',
+    ];
+
+    $motivo = trim($motivo);
+    $detalle = trim($detalle);
+
+    if (!in_array($motivo, $motivosPermitidos, true)) {
+        throw new RuntimeException('Selecciona una razón válida para cancelar la cita.');
+    }
+
+    if ($motivo === 'Otros' && $detalle === '') {
+        throw new RuntimeException('Detalla el motivo de cancelación.');
+    }
+
+    return [
+        'motivo' => mb_substr($motivo, 0, 80, 'UTF-8'),
+        'detalle' => mb_substr($detalle, 0, 255, 'UTF-8'),
+    ];
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($rolUsuario === $ROL_PRACTICANTE) {
         finalizarRespuesta(false, 'No tienes permisos para cancelar o finalizar citas.', 'danger');
@@ -71,6 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $citaId = isset($_POST['citaId']) ? (int) $_POST['citaId'] : 0;
     $estatus = isset($_POST['estatus']) ? (int) $_POST['estatus'] : 0;
     $formaPago = isset($_POST['formaPago']) ? trim((string) $_POST['formaPago']) : null;
+    $motivoCancelacion = isset($_POST['motivo_cancelacion']) ? (string) $_POST['motivo_cancelacion'] : '';
+    $detalleCancelacion = isset($_POST['motivo_cancelacion_detalle']) ? (string) $_POST['motivo_cancelacion_detalle'] : '';
     $pagosRegistrados = [];
     if (isset($_POST['pagos'])) {
         $pagosDecodificados = json_decode((string) $_POST['pagos'], true);
@@ -95,6 +126,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $estatusFinalizada = obtenerIdEstatus($conn, 'Finalizada', 4);
     $esCancelacion = $estatus === $estatusCancelada;
     $esRegistroPago = $estatus === $estatusFinalizada;
+
+    $datosMotivoCancelacion = null;
+    if ($esCancelacion) {
+        try {
+            $datosMotivoCancelacion = normalizarMotivoCancelacion($motivoCancelacion, $detalleCancelacion);
+        } catch (Throwable $motivoError) {
+            finalizarRespuesta(false, $motivoError->getMessage(), 'danger');
+        }
+    }
 
     if ($citaId <= 0 || $estatus <= 0) {
         finalizarRespuesta(false, 'La cita seleccionada no es válida.', 'danger');
@@ -131,10 +171,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $tablaSolicitudesDisponible = false;
-    $tablaSolicitudes = $conn->query("SHOW TABLES LIKE 'SolicitudReprogramacion'");
-    if ($tablaSolicitudes instanceof mysqli_result) {
-        $tablaSolicitudesDisponible = $tablaSolicitudes->num_rows > 0;
-        $tablaSolicitudes->free();
+    try {
+        if ($stmtTablaSolicitudes = $conn->prepare('SELECT 1 FROM SolicitudReprogramacion LIMIT 1')) {
+            $stmtTablaSolicitudes->execute();
+            $stmtTablaSolicitudes->close();
+            $tablaSolicitudesDisponible = true;
+        }
+    } catch (Throwable $tablaSolicitudesError) {
+        error_log('cancelar.php: no se pudo consultar SolicitudReprogramacion: ' . $tablaSolicitudesError->getMessage());
     }
 
     $usaTransaccion = false;
@@ -362,6 +406,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($esCancelacion) {
         $accionLog = 'cancelar';
         $descripcionLog = sprintf('La cita #%d fue cancelada.', $citaId);
+        if ($datosMotivoCancelacion !== null) {
+            $descripcionLog .= sprintf(' Motivo: %s.', $datosMotivoCancelacion['motivo']);
+            if ($datosMotivoCancelacion['detalle'] !== '') {
+                $descripcionLog .= sprintf(' Detalle: %s.', $datosMotivoCancelacion['detalle']);
+            }
+        }
     } elseif ($esRegistroPago) {
         $accionLog = 'registrar_pago';
         $descripcionLog = sprintf('Se registró el pago de la cita #%d.', $citaId);
@@ -390,9 +440,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     );
 
     if ($shouldRegistrarAutoCancelacion) {
-        $stmtRegistrarCancelacion = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, tipo, solicitado_por, comentarios, fecha_solicitud, aprobado_por, fecha_respuesta) VALUES (?, ?, ?, 'aprobada', 'cancelacion', ?, NULL, ?, ?, ?)");
+        $comentarioMotivoCancelacion = 'Motivo: ' . ($datosMotivoCancelacion['motivo'] ?? 'Sin especificar');
+        if ($datosMotivoCancelacion !== null && $datosMotivoCancelacion['detalle'] !== '') {
+            $comentarioMotivoCancelacion .= '. Detalle: ' . $datosMotivoCancelacion['detalle'];
+        }
+        $stmtRegistrarCancelacion = $conn->prepare("INSERT INTO SolicitudReprogramacion (cita_id, fecha_anterior, nueva_fecha, estatus, tipo, solicitado_por, comentarios, fecha_solicitud, aprobado_por, fecha_respuesta) VALUES (?, ?, ?, 'aprobada', 'cancelacion', ?, ?, ?, ?, ?)");
         if ($stmtRegistrarCancelacion) {
-            $stmtRegistrarCancelacion->bind_param('issisis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $fechaActual, $idUsuario, $fechaActual);
+            $stmtRegistrarCancelacion->bind_param('ississis', $citaId, $fechaProgramadaActual, $fechaProgramadaActual, $idUsuario, $comentarioMotivoCancelacion, $fechaActual, $idUsuario, $fechaActual);
             if ($stmtRegistrarCancelacion->execute()) {
                 $solicitudCancelacionId = $conn->insert_id;
                 registrarLog(
@@ -412,12 +466,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($esCancelacion) {
         if ($tablaSolicitudesDisponible) {
             $comentarioCancelacion = 'Solicitud cerrada automáticamente por cancelación de la cita.';
+            if ($datosMotivoCancelacion !== null) {
+                $comentarioCancelacion .= ' Motivo: ' . $datosMotivoCancelacion['motivo'];
+                if ($datosMotivoCancelacion['detalle'] !== '') {
+                    $comentarioCancelacion .= '. Detalle: ' . $datosMotivoCancelacion['detalle'];
+                }
+            }
             $stmtCancelar = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'rechazada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'reprogramacion'");
             $stmtCancelar->bind_param('isssi', $idUsuario, $fechaActual, $comentarioCancelacion, $comentarioCancelacion, $citaId);
             $stmtCancelar->execute();
             $stmtCancelar->close();
 
             $comentarioAprobacion = 'Solicitud de cancelación aprobada automáticamente al cancelar la cita.';
+            if ($datosMotivoCancelacion !== null) {
+                $comentarioAprobacion .= ' Motivo: ' . $datosMotivoCancelacion['motivo'];
+                if ($datosMotivoCancelacion['detalle'] !== '') {
+                    $comentarioAprobacion .= '. Detalle: ' . $datosMotivoCancelacion['detalle'];
+                }
+            }
             if ($stmtCerrarCancelacion = $conn->prepare("UPDATE SolicitudReprogramacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente' AND tipo = 'cancelacion'")) {
                 $stmtCerrarCancelacion->bind_param('isssi', $idUsuario, $fechaActual, $comentarioAprobacion, $comentarioAprobacion, $citaId);
                 $stmtCerrarCancelacion->execute();
@@ -425,18 +491,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        $tablaSolicitudesCancelacion = $conn->query("SHOW TABLES LIKE 'SolicitudCancelacion'");
-        if ($tablaSolicitudesCancelacion instanceof mysqli_result && $tablaSolicitudesCancelacion->num_rows > 0) {
-            $tablaSolicitudesCancelacion->free();
+        $tablaSolicitudesCancelacionDisponible = false;
+        try {
+            if ($stmtTablaSolicitudesCancelacion = $conn->prepare('SELECT 1 FROM SolicitudCancelacion LIMIT 1')) {
+                $stmtTablaSolicitudesCancelacion->execute();
+                $stmtTablaSolicitudesCancelacion->close();
+                $tablaSolicitudesCancelacionDisponible = true;
+            }
+        } catch (Throwable $tablaSolicitudesCancelacionError) {
+            error_log('cancelar.php: no se pudo consultar SolicitudCancelacion: ' . $tablaSolicitudesCancelacionError->getMessage());
+        }
+
+        if ($tablaSolicitudesCancelacionDisponible) {
 
             $comentarioAprobacion = 'Solicitud de cancelación aprobada automáticamente al cancelar la cita.';
+            if ($datosMotivoCancelacion !== null) {
+                $comentarioAprobacion .= ' Motivo: ' . $datosMotivoCancelacion['motivo'];
+                if ($datosMotivoCancelacion['detalle'] !== '') {
+                    $comentarioAprobacion .= '. Detalle: ' . $datosMotivoCancelacion['detalle'];
+                }
+            }
             if ($stmtCerrarCancelacionAntiguo = $conn->prepare("UPDATE SolicitudCancelacion SET estatus = 'aprobada', aprobado_por = ?, fecha_respuesta = ?, comentarios = CASE WHEN comentarios IS NULL OR comentarios = '' THEN ? ELSE CONCAT(comentarios, '\n', ?) END WHERE cita_id = ? AND estatus = 'pendiente'")) {
                 $stmtCerrarCancelacionAntiguo->bind_param('isssi', $idUsuario, $fechaActual, $comentarioAprobacion, $comentarioAprobacion, $citaId);
                 $stmtCerrarCancelacionAntiguo->execute();
                 $stmtCerrarCancelacionAntiguo->close();
             }
-        } elseif ($tablaSolicitudesCancelacion instanceof mysqli_result) {
-            $tablaSolicitudesCancelacion->free();
         }
     }
 

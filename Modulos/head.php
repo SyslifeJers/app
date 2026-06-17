@@ -31,7 +31,9 @@ if ($_SESSION['token'] !== $db_token) {
 }
  $rol = isset($_SESSION['rol']) ? (int) $_SESSION['rol'] : 0;
 
- $ROL_PRACTICANTE = 6;
+  $ROL_VENTAS = 1;
+  $ROL_ADMINISTRADOR = 3;
+  $ROL_PRACTICANTE = 6;
  $esPracticante = ($rol === $ROL_PRACTICANTE);
 
   if ($esPracticante) {
@@ -51,9 +53,15 @@ if ($_SESSION['token'] !== $db_token) {
   $usuarioSesionId = isset($_SESSION['id']) ? (int) $_SESSION['id'] : 0;
   $indiceDia = (int) floor(time() / 86400);
 
-  $rutaFrasesGenerales = __DIR__ . '/../data/frases_diarias.json';
-  if (is_file($rutaFrasesGenerales)) {
-      $contenidoFrases = json_decode((string) file_get_contents($rutaFrasesGenerales), true);
+  $rutaFrasesRol = null;
+  if ($rol === $ROL_ADMINISTRADOR) {
+      $rutaFrasesRol = __DIR__ . '/../data/frases_diarias.json';
+  } elseif ($rol === $ROL_VENTAS) {
+      $rutaFrasesRol = __DIR__ . '/../data/chistes_godin.json';
+  }
+
+  if ($rutaFrasesRol !== null && is_file($rutaFrasesRol)) {
+      $contenidoFrases = json_decode((string) file_get_contents($rutaFrasesRol), true);
       if (is_array($contenidoFrases) && count($contenidoFrases) > 0) {
           $frasesValidas = array_values(array_filter($contenidoFrases, static function ($frase) {
               return is_string($frase) && trim($frase) !== '';
@@ -292,6 +300,11 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
         <a class="nav-link" href="/Clientes/index.php"><i class="fas fa-users"></i>Clientes <span class="sr-only"></span></a>
       </li>
       <?php } ?>
+      <?php if (in_array($rol, [1, 3, 5], true)) { ?>
+      <li class="nav-item ">
+        <a class="nav-link" href="/FlujosSeguimiento/index.php"><i class="fas fa-tasks"></i>Flujos de seguimiento <span class="sr-only"></span></a>
+      </li>
+      <?php } ?>
        <?php if ($rol == 1 || $rol == 3 || $rol == 5) { ?>
             <li class="nav-item ">
          <a class="nav-link" data-bs-toggle="collapse" href="#usuariosMenu" role="button" aria-expanded="false" aria-controls="usuariosMenu"><i class="fas fa-user"></i>Usuarios <span class="caret"></span></a>
@@ -358,11 +371,11 @@ if ($rol == 1 || $rol == 3 || $rol == 5) {
       </li>
       <?php } ?>
 
-      <?php if (!$esPracticante && in_array($rol, [1, 2, 3, 5], true)) { ?>
+      <?php /* if (!$esPracticante && in_array($rol, [1, 2, 3, 5], true)) { ?>
       <li class="nav-item ">
         <a class="nav-link" href="/PagosDemo/index.php"><i class="fas fa-cash-register"></i>Pagos separados <span class="sr-only"></span></a>
       </li>
-      <?php } ?>
+      <?php } */ ?>
 
 	 
             </ul>

@@ -863,7 +863,106 @@ function enviarFormularioJSON() {
   });
 }
 
+const MOTIVOS_CANCELACION_CITA = [
+  'Enfermedad del paciente',
+  'Emergencia familiar',
+  'Problemas de transporte',
+  'Cambio de horario',
+  'No confirmó asistencia',
+  'Decisión del tutor/paciente',
+  'Otros'
+];
+
+function solicitarMotivoCancelacionCita() {
+  return new Promise((resolve) => {
+    const modalId = 'modalMotivoCancelacionCita';
+    let modalElement = document.getElementById(modalId);
+
+    if (!modalElement) {
+      modalElement = document.createElement('div');
+      modalElement.className = 'modal fade';
+      modalElement.id = modalId;
+      modalElement.tabIndex = -1;
+      modalElement.setAttribute('aria-hidden', 'true');
+      modalElement.innerHTML = '<div class="modal-dialog"><div class="modal-content">'
+        + '<div class="modal-header"><h5 class="modal-title">Motivo de cancelación</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>'
+        + '<div class="modal-body">'
+        + '<div class="mb-3"><label class="form-label" for="motivoCancelacionCitaSelect">Razón</label><select class="form-select" id="motivoCancelacionCitaSelect" required></select></div>'
+        + '<div class="mb-0 d-none" id="motivoCancelacionCitaDetalleWrapper"><label class="form-label" for="motivoCancelacionCitaDetalle">Detalle</label><textarea class="form-control" id="motivoCancelacionCitaDetalle" rows="3" maxlength="255" placeholder="Describe el motivo"></textarea><div class="form-text">Obligatorio cuando seleccionas Otros.</div></div>'
+        + '</div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-danger" id="motivoCancelacionCitaConfirmar">Cancelar cita</button></div>'
+        + '</div></div>';
+      document.body.appendChild(modalElement);
+
+      const select = modalElement.querySelector('#motivoCancelacionCitaSelect');
+      MOTIVOS_CANCELACION_CITA.forEach((motivo) => {
+        const option = document.createElement('option');
+        option.value = motivo;
+        option.textContent = motivo;
+        select.appendChild(option);
+      });
+    }
+
+    const select = modalElement.querySelector('#motivoCancelacionCitaSelect');
+    const detalle = modalElement.querySelector('#motivoCancelacionCitaDetalle');
+    const detalleWrapper = modalElement.querySelector('#motivoCancelacionCitaDetalleWrapper');
+    const confirmar = modalElement.querySelector('#motivoCancelacionCitaConfirmar');
+    const modal = new bootstrap.Modal(modalElement);
+    let resolved = false;
+
+    select.value = MOTIVOS_CANCELACION_CITA[0];
+    detalle.value = '';
+    detalleWrapper.classList.add('d-none');
+
+    const onChange = () => {
+      detalleWrapper.classList.toggle('d-none', select.value !== 'Otros');
+    };
+    const cleanup = () => {
+      select.removeEventListener('change', onChange);
+      confirmar.removeEventListener('click', onConfirm);
+      modalElement.removeEventListener('hidden.bs.modal', onHidden);
+    };
+    const onHidden = () => {
+      cleanup();
+      if (!resolved) {
+        resolve(null);
+      }
+    };
+    const onConfirm = () => {
+      const motivo = select.value;
+      const textoDetalle = detalle.value.trim();
+      if (motivo === 'Otros' && textoDetalle === '') {
+        alert('Detalla el motivo de cancelación.');
+        detalle.focus();
+        return;
+      }
+      resolved = true;
+      cleanup();
+      modal.hide();
+      resolve({ motivo, detalle: textoDetalle });
+    };
+
+    select.addEventListener('change', onChange);
+    confirmar.addEventListener('click', onConfirm);
+    modalElement.addEventListener('hidden.bs.modal', onHidden);
+    modal.show();
+  });
+}
+
 function actualizarCita(idCita, estatus) {
+  if (Number(estatus) === 1) {
+    solicitarMotivoCancelacionCita().then((motivoCancelacion) => {
+      if (!motivoCancelacion) {
+        return;
+      }
+      actualizarCitaConMotivo(idCita, estatus, motivoCancelacion);
+    });
+    return;
+  }
+
+  actualizarCitaConMotivo(idCita, estatus, null);
+}
+
+function actualizarCitaConMotivo(idCita, estatus, motivoCancelacion) {
   const xhr = new XMLHttpRequest();
   xhr.open("POST", "cancelar.php", true);
   xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
@@ -876,8 +975,14 @@ function actualizarCita(idCita, estatus) {
     }
   };
 
-    const params = `citaId=${idCita}&estatus=${estatus}`;
-    xhr.send(params);
+    const params = new URLSearchParams();
+    params.append('citaId', idCita);
+    params.append('estatus', estatus);
+    if (motivoCancelacion) {
+      params.append('motivo_cancelacion', motivoCancelacion.motivo);
+      params.append('motivo_cancelacion_detalle', motivoCancelacion.detalle || '');
+    }
+    xhr.send(params.toString());
 
 }
 function finalizarCita(idCita) {

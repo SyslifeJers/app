@@ -3,12 +3,12 @@
   "WorkspaceRootPath": "D:\\AppCerene\\git\\EventosChecador\\",
   "Documents": [
     {
-      "AbsoluteMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|d:\\appcerene\\git\\eventoschecador\\eventoschecador\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
-      "RelativeMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|solutionrelative:eventoschecador\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
-    },
-    {
       "AbsoluteMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|d:\\appcerene\\git\\eventoschecador\\eventoschecador\\accesos.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}",
       "RelativeMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|solutionrelative:eventoschecador\\accesos.json||{90A6B3A7-C1A3-4009-A288-E2FF89E96FA0}"
+    },
+    {
+      "AbsoluteMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|d:\\appcerene\\git\\eventoschecador\\eventoschecador\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}",
+      "RelativeMoniker": "D:0:0:{CDF6FB36-2C52-416A-D068-A79A0AB096A0}|EventosChecador\\EventosChecador.csproj|solutionrelative:eventoschecador\\program.cs||{A6C744A8-0E4A-4FC6-886A-064283054674}"
     }
   ],
   "DocumentGroupContainers": [
@@ -18,7 +18,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 251,
-          "SelectedChildIndex": 8,
+          "SelectedChildIndex": 7,
           "Children": [
             {
               "$type": "Bookmark",
@@ -50,20 +50,20 @@
             },
             {
               "$type": "Document",
-              "DocumentIndex": 1,
+              "DocumentIndex": 0,
               "Title": "accesos.json",
               "DocumentMoniker": "D:\\AppCerene\\git\\EventosChecador\\EventosChecador\\accesos.json",
               "RelativeDocumentMoniker": "EventosChecador\\accesos.json",
               "ToolTip": "D:\\AppCerene\\git\\EventosChecador\\EventosChecador\\accesos.json",
               "RelativeToolTip": "EventosChecador\\accesos.json",
-              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+              "ViewState": "AgIAAAAAAAAAAAAAAAAAAAMAAAAXAAAAAAAAAA==",
               "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.001642|",
               "WhenOpened": "2026-06-05T17:26:41.804Z",
               "EditorCaption": ""
             },
             {
               "$type": "Document",
-              "DocumentIndex": 0,
+              "DocumentIndex": 1,
               "Title": "Program.cs",
               "DocumentMoniker": "D:\\AppCerene\\git\\EventosChecador\\EventosChecador\\Program.cs",
               "RelativeDocumentMoniker": "EventosChecador\\Program.cs",

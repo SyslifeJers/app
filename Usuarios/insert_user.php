@@ -37,10 +37,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     require_once __DIR__ . '/../conexion.php';
     require_once __DIR__ . '/../Modulos/logger.php';
     $conn = conectar();
+    $fechaRegistro = fechaMexicoActual();
 
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, id_checador, IdRol) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, NULLIF(?, ''), ?)");
-    $stmt->bind_param("ssssssi", $name, $user, $pass, $telefono, $correo, $idChecador, $IdRol);
+    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, id_checador, IdRol) VALUES (?, ?, ?, '', 1, ?, ?, ?, NULLIF(?, ''), ?)");
+    $stmt->bind_param("sssssssi", $name, $user, $pass, $fechaRegistro, $telefono, $correo, $idChecador, $IdRol);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {

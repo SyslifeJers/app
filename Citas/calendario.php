@@ -1518,19 +1518,26 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
         }
 
         function cancelAppointmentThenRedirect(previousAppointment, cita, slotStart) {
-            const params = new URLSearchParams();
-            params.append('citaId', previousAppointment.entity_id || '');
-            params.append('estatus', '1');
+            solicitarMotivoCancelacionCita().then(function (motivoCancelacion) {
+                if (!motivoCancelacion) {
+                    return;
+                }
 
-            fetch('../cancelar.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                credentials: 'same-origin',
-                body: params.toString()
-            })
+                const params = new URLSearchParams();
+                params.append('citaId', previousAppointment.entity_id || '');
+                params.append('estatus', '1');
+                params.append('motivo_cancelacion', motivoCancelacion.motivo);
+                params.append('motivo_cancelacion_detalle', motivoCancelacion.detalle || '');
+
+                fetch('../cancelar.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin',
+                    body: params.toString()
+                })
                 .then(function (response) {
                     return response.json().catch(function () {
                         return null;
@@ -1547,6 +1554,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     console.error(error);
                     showAlert(error.message || 'No se pudo cancelar la cita anterior.', 'danger');
                 });
+            });
         }
 
         function selectPatientAvailabilitySlot(cita, slot, patientEvents) {
@@ -2856,29 +2864,119 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
             });
         }
 
+        const MOTIVOS_CANCELACION_CITA = [
+            'Enfermedad del paciente',
+            'Emergencia familiar',
+            'Problemas de transporte',
+            'Cambio de horario',
+            'No confirmó asistencia',
+            'Decisión del tutor/paciente',
+            'Otros'
+        ];
+
+        function solicitarMotivoCancelacionCita() {
+            return new Promise(function (resolve) {
+                const modalId = 'modalMotivoCancelacionCita';
+                let modalElement = document.getElementById(modalId);
+
+                if (!modalElement) {
+                    modalElement = document.createElement('div');
+                    modalElement.className = 'modal fade';
+                    modalElement.id = modalId;
+                    modalElement.tabIndex = -1;
+                    modalElement.setAttribute('aria-hidden', 'true');
+                    modalElement.innerHTML = '<div class="modal-dialog"><div class="modal-content">'
+                        + '<div class="modal-header"><h5 class="modal-title">Motivo de cancelación</h5><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div>'
+                        + '<div class="modal-body">'
+                        + '<div class="mb-3"><label class="form-label" for="motivoCancelacionCitaSelect">Razón</label><select class="form-select" id="motivoCancelacionCitaSelect" required></select></div>'
+                        + '<div class="mb-0 d-none" id="motivoCancelacionCitaDetalleWrapper"><label class="form-label" for="motivoCancelacionCitaDetalle">Detalle</label><textarea class="form-control" id="motivoCancelacionCitaDetalle" rows="3" maxlength="255" placeholder="Describe el motivo"></textarea><div class="form-text">Obligatorio cuando seleccionas Otros.</div></div>'
+                        + '</div><div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-danger" id="motivoCancelacionCitaConfirmar">Cancelar cita</button></div>'
+                        + '</div></div>';
+                    document.body.appendChild(modalElement);
+
+                    const selectInicial = modalElement.querySelector('#motivoCancelacionCitaSelect');
+                    MOTIVOS_CANCELACION_CITA.forEach(function (motivo) {
+                        const option = document.createElement('option');
+                        option.value = motivo;
+                        option.textContent = motivo;
+                        selectInicial.appendChild(option);
+                    });
+                }
+
+                const select = modalElement.querySelector('#motivoCancelacionCitaSelect');
+                const detalle = modalElement.querySelector('#motivoCancelacionCitaDetalle');
+                const detalleWrapper = modalElement.querySelector('#motivoCancelacionCitaDetalleWrapper');
+                const confirmar = modalElement.querySelector('#motivoCancelacionCitaConfirmar');
+                const modal = new bootstrap.Modal(modalElement);
+                let resolved = false;
+
+                select.value = MOTIVOS_CANCELACION_CITA[0];
+                detalle.value = '';
+                detalleWrapper.classList.add('d-none');
+
+                function onChange() {
+                    detalleWrapper.classList.toggle('d-none', select.value !== 'Otros');
+                }
+
+                function cleanup() {
+                    select.removeEventListener('change', onChange);
+                    confirmar.removeEventListener('click', onConfirm);
+                    modalElement.removeEventListener('hidden.bs.modal', onHidden);
+                }
+
+                function onHidden() {
+                    cleanup();
+                    if (!resolved) {
+                        resolve(null);
+                    }
+                }
+
+                function onConfirm() {
+                    const motivo = select.value;
+                    const textoDetalle = detalle.value.trim();
+                    if (motivo === 'Otros' && textoDetalle === '') {
+                        showAlert('Detalla el motivo de cancelación.', 'warning');
+                        detalle.focus();
+                        return;
+                    }
+                    resolved = true;
+                    cleanup();
+                    modal.hide();
+                    resolve({ motivo: motivo, detalle: textoDetalle });
+                }
+
+                select.addEventListener('change', onChange);
+                confirmar.addEventListener('click', onConfirm);
+                modalElement.addEventListener('hidden.bs.modal', onHidden);
+                modal.show();
+            });
+        }
+
         function sendCancelRequest(citaId) {
             if (!citaId) {
                 return;
             }
 
-            const confirmed = window.confirm('¿Deseas cancelar esta cita?');
-            if (!confirmed) {
-                return;
-            }
+            solicitarMotivoCancelacionCita().then(function (motivoCancelacion) {
+                if (!motivoCancelacion) {
+                    return;
+                }
 
-            const params = new URLSearchParams();
-            params.append('citaId', citaId);
-            params.append('estatus', '1');
+                const params = new URLSearchParams();
+                params.append('citaId', citaId);
+                params.append('estatus', '1');
+                params.append('motivo_cancelacion', motivoCancelacion.motivo);
+                params.append('motivo_cancelacion_detalle', motivoCancelacion.detalle || '');
 
-            fetch('../cancelar.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                credentials: 'same-origin',
-                body: params.toString()
-            })
+                fetch('../cancelar.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    credentials: 'same-origin',
+                    body: params.toString()
+                })
                 .then(function (response) {
                     return response.json().catch(function () {
                         throw new Error('Respuesta no válida del servidor.');
@@ -2895,6 +2993,7 @@ $agendaSoloLectura = ((int) $rol === $ROL_PRACTICANTE);
                     console.error(error);
                     showAlert(error.message || 'No se pudo procesar la cancelación. Intenta nuevamente.', 'danger');
                 });
+            });
         }
 
         function sendCancelRecurringReservationRequest(reservacionId) {

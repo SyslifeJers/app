@@ -37,10 +37,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
     require_once __DIR__ . '/../conexion.php';
     $conn = conectar();
+    $fechaRegistro = fechaMexicoActual();
 
     // Preparar y vincular
-    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, id_checador, IdRol, color_id) VALUES (?, ?, ?, '', 1, NOW(), ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))");
-    $stmt->bind_param("ssssssii", $name, $user, $pass, $telefono, $correo, $idChecador, $IdRol, $colorId);
+    $stmt = $conn->prepare("INSERT INTO Usuarios (name, user, pass, token, activo, registro, telefono, correo, id_checador, IdRol, color_id) VALUES (?, ?, ?, '', 1, ?, ?, ?, NULLIF(?, ''), ?, NULLIF(?, 0))");
+    $stmt->bind_param("sssssssii", $name, $user, $pass, $fechaRegistro, $telefono, $correo, $idChecador, $IdRol, $colorId);
 
     // Ejecutar la consulta
     if ($stmt->execute()) {
