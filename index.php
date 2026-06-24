@@ -4,11 +4,13 @@ ob_start();
 include 'Modulos/head.php';
 require_once __DIR__ . '/Modulos/resumen_pagos.php';
 require_once __DIR__ . '/Modulos/saldo_pacientes.php';
+require_once __DIR__ . '/Modulos/servicios_paciente.php';
 
 $rolUsuario = $_SESSION['rol'] ?? 0;
 $esAdministrador = (int) $rolUsuario === 3;
 $puedeRegistrarPagoSinCita = in_array((int) $rolUsuario, [1, 3], true);
 $tutoresPagoSinCita = [];
+$serviciosCompraSeparada = [];
 $historialPacientesInicio = [];
 $agendaPsicologosInicio = [];
 $zonaHorariaApp = new DateTimeZone('America/Mexico_City');
@@ -227,6 +229,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['
     exit;
 }
 
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['accion']) && $_POST['accion'] === 'registrar_servicio_sin_cita') {
+    $mensaje = ['tipo' => 'danger', 'texto' => 'No fue posible registrar la compra de servicio.'];
+
+    try {
+        if (!$puedeRegistrarPagoSinCita) {
+            throw new RuntimeException('Solo administración o ventas pueden registrar compras de servicios sin cita.');
+        }
+
+        $pacienteId = isset($_POST['paciente_id']) ? (int) $_POST['paciente_id'] : 0;
+        $precioId = isset($_POST['precio_id']) ? (int) $_POST['precio_id'] : 0;
+        $monto = isset($_POST['monto']) ? (float) $_POST['monto'] : 0.0;
+        $metodoPago = isset($_POST['metodo_pago']) ? trim((string) $_POST['metodo_pago']) : '';
+
+        if ($pacienteId <= 0 || $precioId <= 0) {
+            throw new RuntimeException('Selecciona paciente y servicio.');
+        }
+
+        $precioServicio = obtenerPrecioServicioPorId($conn, $precioId);
+        if (!$precioServicio || ((int) $precioServicio['sesiones_total'] === 1 && (int) $precioServicio['requiere_cita'] === 1 && (int) $precioServicio['permite_sin_fecha'] !== 1)) {
+            throw new RuntimeException('El tipo seleccionado no está configurado como servicio sin cita.');
+        }
+
+        if ($monto > 0.009 && !in_array($metodoPago, ['Efectivo', 'Transferencia', 'Tarjeta'], true)) {
+            throw new RuntimeException('Selecciona un método de pago válido.');
+        }
+
+        $pacienteNombre = '';
+        if ($stmtPaciente = $conn->prepare('SELECT name FROM nino WHERE id = ? LIMIT 1')) {
+            $stmtPaciente->bind_param('i', $pacienteId);
+            $stmtPaciente->execute();
+            $stmtPaciente->bind_result($nombrePacienteDb);
+            if ($stmtPaciente->fetch()) {
+                $pacienteNombre = (string) $nombrePacienteDb;
+            }
+            $stmtPaciente->close();
+        }
+
+        if ($pacienteNombre === '') {
+            throw new RuntimeException('Paciente no encontrado.');
+        }
+
+        $conn->begin_transaction();
+        $servicio = prepararServicioPaciente($conn, $pacienteId, null, $precioServicio, isset($_SESSION['id']) ? (int) $_SESSION['id'] : null);
+
+        if ($monto > 0.009) {
+            registrarPagoServicioPaciente($conn, [
+                'id' => (int) $servicio['id'],
+                'nino_id' => $pacienteId,
+                'psicologo_id' => null,
+                'saldo_restante' => (float) $servicio['saldo_restante'],
+                'servicio_nombre' => (string) ($precioServicio['name'] ?? ''),
+                'paciente_nombre' => $pacienteNombre,
+                'psicologo_nombre' => '',
+            ], null, $metodoPago, $monto, isset($_SESSION['id']) ? (int) $_SESSION['id'] : null, date('Y-m-d H:i:s'));
+        }
+
+        $conn->commit();
+        $mensaje = ['tipo' => 'success', 'texto' => 'Compra de servicio registrada correctamente.'];
+    } catch (Throwable $e) {
+        if ($conn instanceof mysqli && $conn->errno === 0) {
+            try {
+                $conn->rollback();
+            } catch (Throwable $rollbackError) {
+            }
+        }
+        $mensaje['texto'] = $e->getMessage();
+    }
+
+    $_SESSION['corte_caja_mensaje'] = $mensaje;
+    header('Location: index.php');
+    exit;
+}
+
 $stmtEfectivoHoy = $conn->prepare('SELECT efectivo_inicial FROM CorteCaja WHERE fecha = ? LIMIT 1');
 if ($stmtEfectivoHoy instanceof mysqli_stmt) {
     $stmtEfectivoHoy->bind_param('s', $fechaCorteHoy);
@@ -320,6 +395,13 @@ if ($puedeRegistrarPagoSinCita && $resultadoTutoresPagoSinCita = $conn->query("S
         $tutoresPagoSinCita[] = $tutorPagoSinCita;
     }
     $resultadoTutoresPagoSinCita->free();
+}
+
+if ($puedeRegistrarPagoSinCita && $resultadoServiciosCompra = $conn->query("SELECT id, name, costo, COALESCE(sesiones_total, 1) AS sesiones_total, COALESCE(requiere_cita, 1) AS requiere_cita, COALESCE(permite_sin_fecha, 0) AS permite_sin_fecha FROM Precios WHERE activo = 1 AND (COALESCE(sesiones_total, 1) <> 1 OR COALESCE(requiere_cita, 1) = 0 OR COALESCE(permite_sin_fecha, 0) = 1) ORDER BY name ASC")) {
+    while ($servicioCompra = $resultadoServiciosCompra->fetch_assoc()) {
+        $serviciosCompraSeparada[] = $servicioCompra;
+    }
+    $resultadoServiciosCompra->free();
 }
 
 if ($resultadoHistorialInicio = $conn->query("SELECT ci.id, ci.IdNino, ci.costo, ci.Programado, ci.Tipo, es.name AS estatus_nombre, u.name AS psicologo_nombre FROM Cita ci INNER JOIN Estatus es ON es.id = ci.Estatus INNER JOIN Usuarios u ON u.id = ci.IdUsuario ORDER BY ci.IdNino ASC, ci.Programado DESC LIMIT 3000")) {
@@ -476,7 +558,7 @@ if ($estatusSeleccionado === null) {
 
           $whereConditions = ["DATE(ci.Programado) BETWEEN ? AND ?"];
           if ($estatusSeleccionado === null) {
-            $whereConditions[] = "(ci.FormaPago IS NULL OR ci.FormaPago = '' OR ci.FormaPago like 'Paquete%')";
+            $whereConditions[] = "(ci.FormaPago IS NULL OR ci.FormaPago = '' OR ci.FormaPago like 'Paquete%' OR ci.servicio_paciente_id IS NOT NULL)";
           } else {
             $whereConditions[] = "ci.Estatus = ?";
           }
@@ -491,14 +573,19 @@ if ($estatusSeleccionado === null) {
        ci.Tiempo,
        DATE(ci.Programado) as Fecha,
        TIME(ci.Programado) as Hora,
-       ci.Tipo,
-       ci.FormaPago,
-       es.name as Estatus,
+        ci.Tipo,
+        ci.FormaPago,
+        ci.servicio_paciente_id,
+        ci.servicio_sesion,
+        sp.sesiones_total AS servicio_sesiones_total,
+        sp.saldo_restante AS servicio_saldo_restante,
+        es.name as Estatus,
        COALESCE(n.saldo_paquete, 0) AS saldo_paquete" . $selectSolicitudesReprogramacion . $selectSolicitudesCancelacion . "
 FROM Cita ci
 INNER JOIN nino n ON n.id = ci.IdNino
 INNER JOIN Usuarios us ON us.id = ci.IdUsuario
 INNER JOIN Estatus es ON es.id = ci.Estatus
+LEFT JOIN ServiciosPaciente sp ON sp.id = ci.servicio_paciente_id
 " . $joinSolicitudesReprogramacion . $joinSolicitudesCancelacion . "
 WHERE " . implode("\n  AND ", $whereConditions) . "
 ORDER BY ci.Programado ASC;";
@@ -580,6 +667,7 @@ $result = $stmt->get_result();
 
               $reprogramarTexto = 'Reprogramar';
               $formaPagoRegistrada = isset($row['FormaPago']) ? trim((string) $row['FormaPago']) : '';
+              $esCitaServicio = !empty($row['servicio_paciente_id']);
               $estatusActual = isset($row['Estatus']) ? strtolower((string) $row['Estatus']) : '';
               $botones = [];
               if ($row['Estatus'] == 'Creada' || $row['Estatus'] == 'Reprogramado') {
@@ -589,7 +677,7 @@ $result = $stmt->get_result();
 
             }
 
-              if ($formaPagoRegistrada !== '') {
+              if ($formaPagoRegistrada !== '' && !$esCitaServicio) {
                 $botones[] = '<span class="badge bg-success">Pago registrado</span>';
                 if ($estatusActual !== 'finalizada' ) {
                   $botones[] = '<button class="btn btn-outline-success btn-sm" onclick="finalizarCita(' . $row['id'] . ')">Finalizar</button>';
@@ -606,7 +694,11 @@ $result = $stmt->get_result();
                   'psicologoId' => (int) $row['PsicologoId'],
                   'tipo' => $row['Tipo'],
                   'pacienteNombre' => $row['name'],
-                  'psicologoNombre' => $row['Psicologo']
+                  'psicologoNombre' => $row['Psicologo'],
+                  'servicioPacienteId' => $esCitaServicio ? (int) $row['servicio_paciente_id'] : null,
+                  'servicioSesion' => $row['servicio_sesion'] !== null ? (int) $row['servicio_sesion'] : null,
+                  'servicioSesionesTotal' => $row['servicio_sesiones_total'] !== null ? (int) $row['servicio_sesiones_total'] : null,
+                  'servicioSaldoRestante' => $row['servicio_saldo_restante'] !== null ? (float) $row['servicio_saldo_restante'] : null
                 ];
                 $botones[] = '<button class="btn btn-success btn-sm pagar-cita-btn" data-pago="' . htmlspecialchars(json_encode($pagoInfo), ENT_QUOTES, 'UTF-8') . '">Pagar</button>';
               }
@@ -619,7 +711,17 @@ $result = $stmt->get_result();
               echo '<td>' . $row['costo'] . '</td>';
               echo '<td>' . $row['Hora'] . '</td>';
               echo '<td>' . $row['Tipo'] . '</td>';
-              $formaPagoTexto = $formaPagoRegistrada !== '' ? $formaPagoRegistrada : 'Sin registrar';
+              if ($esCitaServicio) {
+                $formaPagoTexto = 'Servicio';
+                if ($row['servicio_sesion'] !== null && $row['servicio_sesiones_total'] !== null) {
+                  $formaPagoTexto .= ' ' . (int) $row['servicio_sesion'] . '/' . (int) $row['servicio_sesiones_total'];
+                }
+                if ($row['servicio_saldo_restante'] !== null) {
+                  $formaPagoTexto .= ' - Restante $' . number_format((float) $row['servicio_saldo_restante'], 2);
+                }
+              } else {
+                $formaPagoTexto = $formaPagoRegistrada !== '' ? $formaPagoRegistrada : 'Sin registrar';
+              }
               echo '<td>' . htmlspecialchars($formaPagoTexto, ENT_QUOTES, 'UTF-8') . '</td>';
               echo '<td>' . $row['Estatus'] . '</td>';
               echo '<td><span class="' . $badgeClassReprogramacion . '">' . $textoBadgeReprogramacion . '</span></td>';
@@ -656,10 +758,87 @@ $result = $stmt->get_result();
     justify-content: center;
     font-size: 22px;
   }
+  .floating-service-purchase {
+    position: fixed;
+    right: 28px;
+    bottom: 96px;
+    z-index: 1050;
+    width: 58px;
+    height: 58px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
 </style>
+<button type="button" class="btn btn-info text-white rounded-circle shadow-lg floating-service-purchase" data-bs-toggle="modal" data-bs-target="#modalCompraServicioSinCita" aria-label="Compra de servicios sin cita" title="Compra de servicios sin cita">
+  <i class="fas fa-notes-medical"></i>
+</button>
 <button type="button" class="btn btn-warning rounded-circle shadow-lg floating-payment-no-appointment" data-bs-toggle="modal" data-bs-target="#modalPagoSinCitaInicio" aria-label="Registrar pago sin cita" title="Registrar pago sin cita">
   <i class="fas fa-receipt"></i>
 </button>
+<div class="modal fade" id="modalCompraServicioSinCita" tabindex="-1" aria-labelledby="modalCompraServicioSinCitaLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form method="post">
+        <input type="hidden" name="accion" value="registrar_servicio_sin_cita">
+        <div class="modal-header">
+          <h5 class="modal-title" id="modalCompraServicioSinCitaLabel"><i class="fas fa-notes-medical me-2"></i>Compra de servicios sin cita</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+        </div>
+        <div class="modal-body">
+          <div class="alert alert-info py-2">
+            Registra un servicio separado sin confirmar fechas. El adeudo queda en el servicio y después las citas se ligan automáticamente por tipo.
+          </div>
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label" for="compraServicioBuscar">Buscar paciente</label>
+              <input type="search" class="form-control" id="compraServicioBuscar" placeholder="Escribe el nombre del paciente">
+            </div>
+            <div class="col-12">
+              <label class="form-label" for="compraServicioPaciente">Paciente</label>
+              <select class="form-select" id="compraServicioPaciente" name="paciente_id" required>
+                <option value="">Selecciona paciente</option>
+              </select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="compraServicioPrecio">Servicio</label>
+              <select class="form-select" id="compraServicioPrecio" name="precio_id" required>
+                <option value="">Selecciona servicio</option>
+                <?php foreach ($serviciosCompraSeparada as $servicioCompra): ?>
+                  <?php
+                    $sesionesCompra = (int) ($servicioCompra['sesiones_total'] ?? 1);
+                    $etiquetaSesiones = $sesionesCompra === 0 ? 'sin cita' : ($sesionesCompra . ' cita' . ($sesionesCompra === 1 ? '' : 's'));
+                  ?>
+                  <option value="<?php echo (int) $servicioCompra['id']; ?>">
+                    <?php echo htmlspecialchars((string) $servicioCompra['name'] . ' - $' . number_format((float) $servicioCompra['costo'], 2) . ' - ' . $etiquetaSesiones, ENT_QUOTES, 'UTF-8'); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="compraServicioMetodo">Método</label>
+              <select class="form-select" id="compraServicioMetodo" name="metodo_pago">
+                <option value="">Sin pago inicial</option>
+                <option value="Efectivo">Efectivo</option>
+                <option value="Transferencia">Transferencia</option>
+                <option value="Tarjeta">Tarjeta</option>
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label" for="compraServicioMonto">Pago inicial</label>
+              <input type="number" min="0" step="0.01" class="form-control" id="compraServicioMonto" name="monto" value="0.00">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+          <button type="submit" class="btn btn-info text-white">Registrar servicio</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 <div class="modal fade" id="modalPagoSinCitaInicio" tabindex="-1" aria-labelledby="modalPagoSinCitaInicioLabel" aria-hidden="true">
   <div class="modal-dialog modal-lg modal-dialog-scrollable">
     <div class="modal-content">
@@ -716,6 +895,8 @@ $result = $stmt->get_result();
 <script>
   document.addEventListener('DOMContentLoaded', function () {
     var input = document.getElementById('inicioPagoSinCitaBuscar');
+    var compraInput = document.getElementById('compraServicioBuscar');
+    var compraSelect = document.getElementById('compraServicioPaciente');
     var tutorInput = document.getElementById('inicioPagoSinCitaTutor');
     var select = document.getElementById('inicioPagoSinCitaPaciente');
     var montoInput = document.getElementById('inicioPagoSinCitaMonto');
@@ -771,6 +952,35 @@ $result = $stmt->get_result();
       updateSaldoTexto();
     }
 
+    function renderPacientesCompra(query) {
+      if (!compraSelect) {
+        return;
+      }
+      var normalizedQuery = normalizeSearch(query);
+      var currentValue = compraSelect.value;
+      var hasCurrentValue = false;
+      compraSelect.innerHTML = '<option value="">Selecciona paciente</option>';
+      tutores.forEach(function (item) {
+        var pacienteId = String(item.paciente_id || '');
+        var pacienteNombre = String(item.paciente_nombre || 'Paciente sin nombre');
+        var tutorNombre = String(item.tutor_nombre || 'Tutor sin nombre');
+        var textoBusqueda = pacienteNombre + ' ' + tutorNombre;
+        if (!pacienteId || (normalizedQuery !== '' && normalizeSearch(textoBusqueda).indexOf(normalizedQuery) === -1)) {
+          return;
+        }
+        var option = document.createElement('option');
+        option.value = pacienteId;
+        option.textContent = pacienteNombre + ' - tutor ' + tutorNombre;
+        compraSelect.appendChild(option);
+        if (pacienteId === currentValue) {
+          hasCurrentValue = true;
+        }
+      });
+      if (currentValue && hasCurrentValue) {
+        compraSelect.value = currentValue;
+      }
+    }
+
     function updateSaldoTexto() {
       if (!saldoTexto) {
         return;
@@ -794,12 +1004,18 @@ $result = $stmt->get_result();
     input.addEventListener('input', function () {
       renderPacientes(input.value);
     });
+    if (compraInput) {
+      compraInput.addEventListener('input', function () {
+        renderPacientesCompra(compraInput.value);
+      });
+    }
     select.addEventListener('change', updatePacienteSeleccionado);
     if (montoInput) {
       montoInput.addEventListener('input', updateSaldoTexto);
       montoInput.addEventListener('change', updateSaldoTexto);
     }
     renderPacientes('');
+    renderPacientesCompra('');
   });
 </script>
 <?php endif; ?>
@@ -1100,10 +1316,28 @@ $result = $stmt->get_result();
               <div class="form-group">
                 <label for="resumenTipo">Tipo</label>
                 <input type="text" name="resumenTipo" id="resumenTipo" class="form-control" readonly>
+                <input type="hidden" name="sendIdPrecio" id="sendIdPrecio">
               </div>
               <div class="form-group">
                 <label for="resumenCosto">Costo</label>
                 <input type="number" name="resumenCosto" id="resumenCosto" class="form-control" min="0" step="0.01">
+                <div class="alert alert-info py-2 mt-2 d-none" id="servicioActivoAviso"></div>
+              </div>
+              <div class="row g-2 d-none" id="grupoPagoInicialServicio">
+                <div class="col-12 col-md-6">
+                  <label for="servicioPagoInicial" class="form-label">Pago inicial del servicio</label>
+                  <input type="number" name="servicio_pago_inicial" id="servicioPagoInicial" class="form-control" min="0" step="0.01" value="0.00">
+                </div>
+                <div class="col-12 col-md-6">
+                  <label for="servicioMetodo" class="form-label">Método</label>
+                  <select name="servicio_metodo" id="servicioMetodo" class="form-select">
+                    <option value="">Sin pago</option>
+                    <option value="Efectivo">Efectivo</option>
+                    <option value="Transferencia">Transferencia</option>
+                    <option value="Tarjeta">Tarjeta</option>
+                  </select>
+                </div>
+                <div class="col-12"><div class="form-text">Para servicios, puedes registrar sin pago, pago inicial o liquidar el total.</div></div>
               </div>
               <div class="form-group">
                 <label for="resumenPaquete">Paquete</label>

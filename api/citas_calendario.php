@@ -212,9 +212,13 @@ $sqlCitas = 'SELECT ci.id,
                  ci.Programado,
                  ci.Tiempo,
                  ci.Tipo,
-                 ci.FormaPago,
-                 ci.costo,
-                 ci.IdUsuario AS psicologo_id,
+                  ci.FormaPago,
+                  ci.costo,
+                  ci.servicio_paciente_id,
+                  ci.servicio_sesion,
+                  sp.sesiones_total AS servicio_sesiones_total,
+                  sp.saldo_restante AS servicio_saldo_restante,
+                  ci.IdUsuario AS psicologo_id,
                  n.name AS paciente,
                  c.telefono AS contacto_telefono,
                  c.correo AS contacto_correo,
@@ -228,7 +232,8 @@ $sqlCitas = 'SELECT ci.id,
         LEFT JOIN Clientes c ON c.id = n.idtutor
         INNER JOIN Usuarios us ON us.id = ci.IdUsuario
         LEFT JOIN colores co ON co.id = us.color_id
-        INNER JOIN Estatus es ON es.id = ci.Estatus'
+        INNER JOIN Estatus es ON es.id = ci.Estatus
+        LEFT JOIN ServiciosPaciente sp ON sp.id = ci.servicio_paciente_id'
     . $joinSolicitudesReprogramacion
     . $joinSolicitudesCancelacion
     . ' WHERE ' . implode(' AND ', $condicionesCita)
@@ -283,6 +288,10 @@ while ($fila = $resultadoCitas->fetch_assoc()) {
         'tipo' => $fila['Tipo'],
         'forma_pago' => $fila['FormaPago'],
         'costo' => $fila['costo'] !== null ? (float) $fila['costo'] : null,
+        'servicio_paciente_id' => $fila['servicio_paciente_id'] !== null ? (int) $fila['servicio_paciente_id'] : null,
+        'servicio_sesion' => $fila['servicio_sesion'] !== null ? (int) $fila['servicio_sesion'] : null,
+        'servicio_sesiones_total' => $fila['servicio_sesiones_total'] !== null ? (int) $fila['servicio_sesiones_total'] : null,
+        'servicio_saldo_restante' => $fila['servicio_saldo_restante'] !== null ? (float) $fila['servicio_saldo_restante'] : null,
         'solicitudesReprogramacionPendientes' => (int) ($fila['solicitudesReprogramacionPendientes'] ?? 0),
         'solicitudesCancelacionPendientes' => (int) ($fila['solicitudesCancelacionPendientes'] ?? 0),
     ];

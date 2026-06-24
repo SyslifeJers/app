@@ -12,12 +12,12 @@ function conectar() {
     $db_pass = 'Rtx2080_';
 
     $conn = new mysqli($db_host, $db_user, $db_pass, $db_name);
-    $conn->set_charset("utf8");
-    $conn->query("SET time_zone = '-06:00'");
-
     if ($conn->connect_error) {
         die("Conexión fallida: " . $conn->connect_error);
     }
+
+    $conn->set_charset("utf8");
+    $conn->query("SET time_zone = '-06:00'");
 
     return $conn;
 }

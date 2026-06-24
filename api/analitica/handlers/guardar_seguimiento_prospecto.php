@@ -31,6 +31,7 @@ if ($promocionTexto !== '') {
 }
 
 $origenReporte = 'app_seguimiento';
+$fechaActual = fechaMexicoActual();
 
 $sql = 'INSERT INTO ProspectosSeguimiento (
             paciente_id,
@@ -45,7 +46,7 @@ $sql = 'INSERT INTO ProspectosSeguimiento (
             origen_reporte,
             fecha_alta,
             fecha_actualizacion
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             cliente_id = VALUES(cliente_id),
             total_completadas = VALUES(total_completadas),
@@ -56,7 +57,7 @@ $sql = 'INSERT INTO ProspectosSeguimiento (
             promocion_id = VALUES(promocion_id),
             notas = VALUES(notas),
             origen_reporte = VALUES(origen_reporte),
-            fecha_actualizacion = NOW()';
+            fecha_actualizacion = ?';
 
 $stmt = $conn->prepare($sql);
 if ($stmt === false) {
@@ -64,7 +65,7 @@ if ($stmt === false) {
 }
 
 $stmt->bind_param(
-    'iiiidsiiss',
+    'iiiidsiisssss',
     $pacienteId,
     $clienteId,
     $totalCompletadas,
@@ -74,7 +75,10 @@ $stmt->bind_param(
     $estatusId,
     $promocionId,
     $notas,
-    $origenReporte
+    $origenReporte,
+    $fechaActual,
+    $fechaActual,
+    $fechaActual
 );
 
 if (!$stmt->execute()) {
@@ -121,10 +125,10 @@ if ($prospectoId > 0) {
                                 origen,
                                 usuario_id,
                                 creado_en
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     if ($stmt !== false) {
         $stmt->bind_param(
-            'iiiiissdsi',
+            'iiiiissdsis',
             $prospectoId,
             $pacienteId,
             $clienteId,
@@ -134,7 +138,8 @@ if ($prospectoId > 0) {
             $notas,
             $calificacion,
             $origen,
-            $usuarioId
+            $usuarioId,
+            $fechaActual
         );
         $stmt->execute();
         $stmt->close();

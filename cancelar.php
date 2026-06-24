@@ -7,6 +7,7 @@ require_once 'conexion.php';
 require_once __DIR__ . '/Modulos/logger.php';
 require_once __DIR__ . '/Modulos/resumen_pagos.php';
 require_once __DIR__ . '/Modulos/saldo_pacientes.php';
+require_once __DIR__ . '/Modulos/servicios_paciente.php';
 $conn = conectar();
 session_start();
 
@@ -206,6 +207,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     try {
         if ($esRegistroPago) {
+            $servicioCitaPago = obtenerServicioPorCita($conn, $citaId, true);
+            if ($servicioCitaPago !== null) {
+                if ((int) $estatusActualCita === $estatusCancelada) {
+                    throw new Exception('No se puede registrar el pago de una cita cancelada.');
+                }
+
+                $pagosProcesadosServicio = $pagosRegistrados;
+                if (empty($pagosProcesadosServicio) && $formaPago !== null && $formaPago !== '' && $montoPago > 0) {
+                    $pagosProcesadosServicio[] = [
+                        'metodo' => $formaPago,
+                        'monto' => $montoPago,
+                    ];
+                }
+
+                if (empty($pagosProcesadosServicio)) {
+                    throw new Exception('Registra al menos una forma de pago válida para el servicio.');
+                }
+
+                $metodosResumenServicio = [];
+                foreach ($pagosProcesadosServicio as $pagoDetalleServicio) {
+                    $metodoServicio = isset($pagoDetalleServicio['metodo']) ? trim((string) $pagoDetalleServicio['metodo']) : '';
+                    $montoServicio = isset($pagoDetalleServicio['monto']) ? (float) $pagoDetalleServicio['monto'] : 0.0;
+
+                    if ($metodoServicio === '' || $montoServicio <= 0) {
+                        continue;
+                    }
+                    if (strcasecmp($metodoServicio, 'Saldo') === 0) {
+                        throw new Exception('Los servicios por sesiones no se pagan con saldo de cita. Registra efectivo, transferencia o tarjeta.');
+                    }
+
+                    $montoAplicadoServicio = registrarPagoServicioPaciente($conn, $servicioCitaPago, $citaId, substr($metodoServicio, 0, 50), $montoServicio, $idUsuario, $fechaActual);
+                    $servicioCitaPago['saldo_restante'] = max(0.0, (float) $servicioCitaPago['saldo_restante'] - $montoAplicadoServicio);
+                    $metodosResumenServicio[] = substr($metodoServicio, 0, 50);
+                    $detallesPagos[] = sprintf('%s $%s', $metodoServicio, number_format($montoAplicadoServicio, 2));
+
+                    if ((float) $servicioCitaPago['saldo_restante'] <= 0.009) {
+                        break;
+                    }
+                }
+
+                if (empty($metodosResumenServicio)) {
+                    throw new Exception('Registra al menos un monto mayor a cero para el servicio.');
+                }
+
+                marcarSesionServicioCompletada($conn, (int) $servicioCitaPago['id']);
+
+                $formaPago = 'Servicio (' . implode(', ', array_values(array_unique($metodosResumenServicio))) . ')';
+
+                if ($imprimirTicket) {
+                    $stmtAgregarTicket = $conn->prepare('INSERT INTO colaTickets (id_cita) VALUES (?)');
+                    if (!$stmtAgregarTicket) {
+                        throw new Exception('No fue posible preparar la cola de impresión.');
+                    }
+                    $stmtAgregarTicket->bind_param('i', $citaId);
+                    if (!$stmtAgregarTicket->execute()) {
+                        $stmtAgregarTicket->close();
+                        throw new Exception('No fue posible agregar el ticket a la cola de impresión.');
+                    }
+                    $stmtAgregarTicket->close();
+                    $ticketEncolado = true;
+                }
+            } else {
             if (!$pacienteId) {
                 throw new Exception('No fue posible identificar al paciente de la cita.');
             }
@@ -372,6 +435,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $stmtAgregarTicket->close();
                 $ticketEncolado = true;
+            }
             }
         }
 

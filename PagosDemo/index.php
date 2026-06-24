@@ -2,6 +2,7 @@
 include '../Modulos/head.php';
 require_once __DIR__ . '/../Modulos/conflictos_agenda.php';
 require_once __DIR__ . '/../Modulos/resumen_pagos.php';
+require_once __DIR__ . '/../Modulos/servicios_paciente.php';
 
 $ROL_PRACTICANTE = 6;
 $ROL_ADMIN = 3;
@@ -536,6 +537,49 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
                 throw new RuntimeException('Cita no encontrada.');
             }
 
+            $servicioCitaPago = obtenerServicioPorCita($conn, $citaId, true);
+            if ($servicioCitaPago !== null) {
+                if ($montoSaldo > 0) {
+                    throw new RuntimeException('Los servicios por sesiones no se pagan con saldo de cita. Registra efectivo, transferencia o tarjeta.');
+                }
+                if ($montoExterno <= 0) {
+                    throw new RuntimeException('Registra un monto para abonar al servicio.');
+                }
+
+                $montoAplicadoServicio = registrarPagoServicioPaciente($conn, $servicioCitaPago, $citaId, $metodoPago, $montoExterno, $usuarioId, $fechaActual);
+                marcarSesionServicioCompletada($conn, (int) $servicioCitaPago['id']);
+
+                demoPagosInsertarDetallePagoCita($conn, $citaId, $metodoPago, $montoAplicadoServicio, $usuarioId);
+
+                $estatusFinalizada = demoPagosObtenerIdEstatus($conn, 'Finalizada', 4);
+                $formaPagoCita = 'Servicio (' . $metodoPago . ')';
+                $stmtFinalizar = $conn->prepare('UPDATE Cita SET FormaPago = ?, Estatus = ? WHERE id = ?');
+                if (!$stmtFinalizar) {
+                    throw new RuntimeException('No fue posible preparar la finalizacion de la cita.');
+                }
+                $stmtFinalizar->bind_param('sii', $formaPagoCita, $estatusFinalizada, $citaId);
+                if (!$stmtFinalizar->execute()) {
+                    $stmtFinalizar->close();
+                    throw new RuntimeException('No fue posible finalizar la cita.');
+                }
+                $stmtFinalizar->close();
+                demoPagosRegistrarHistorialEstatus($conn, $fechaActual, $estatusFinalizada, $citaId, $usuarioId);
+
+                if ($imprimirTicket) {
+                    $stmtAgregarTicket = $conn->prepare('INSERT INTO colaTickets (id_cita) VALUES (?)');
+                    if (!$stmtAgregarTicket) {
+                        throw new RuntimeException('No fue posible preparar la cola de impresion.');
+                    }
+                    $stmtAgregarTicket->bind_param('i', $citaId);
+                    if (!$stmtAgregarTicket->execute()) {
+                        $stmtAgregarTicket->close();
+                        throw new RuntimeException('No fue posible agregar el ticket a la cola de impresion.');
+                    }
+                    $stmtAgregarTicket->close();
+                }
+
+                $mensajeDemo = 'Abono de servicio registrado.';
+            } else {
             $pacienteId = (int) $cita['IdNino'];
             $costo = (float) $cita['costo'];
             $totalAplicado = $montoExterno + $montoSaldo;
@@ -636,6 +680,7 @@ if ($tienePermisoDemo && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $mensajeDemo = $faltante > 0
                 ? 'Pago parcial registrado. El faltante quedó como saldo adeudor del paciente.'
                 : 'Pago de cita registrado.';
+            }
         } else {
             throw new RuntimeException('Accion no valida.');
         }

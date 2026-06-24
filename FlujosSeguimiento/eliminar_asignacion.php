@@ -52,11 +52,12 @@ try {
     $stmtTasks->execute();
     $stmtTasks->close();
 
-    $stmtAsignacion = $conn->prepare("UPDATE exp_flujo_asignaciones SET activo = 0, estatus = 'cancelado', fecha_cierre = NOW(), usuario_cierre = ? WHERE id_asignacion = ? AND activo = 1");
+    $fechaCierre = fechaMexicoActual();
+    $stmtAsignacion = $conn->prepare("UPDATE exp_flujo_asignaciones SET activo = 0, estatus = 'cancelado', fecha_cierre = ?, usuario_cierre = ? WHERE id_asignacion = ? AND activo = 1");
     if (!$stmtAsignacion) {
         throw new RuntimeException('No fue posible eliminar la asignacion.');
     }
-    $stmtAsignacion->bind_param('ii', $session['id'], $id);
+    $stmtAsignacion->bind_param('sii', $fechaCierre, $session['id'], $id);
     $stmtAsignacion->execute();
     $stmtAsignacion->close();
     $conn->commit();

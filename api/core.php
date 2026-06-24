@@ -136,7 +136,7 @@ function registrarProspectosSeguimiento(mysqli $conn, array $prospectos): void
                 origen_reporte,
                 fecha_alta,
                 fecha_actualizacion
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 cliente_id = VALUES(cliente_id),
                 total_completadas = VALUES(total_completadas),
@@ -144,7 +144,7 @@ function registrarProspectosSeguimiento(mysqli $conn, array $prospectos): void
                 calificacion = VALUES(calificacion),
                 ultima_cita = VALUES(ultima_cita),
                 origen_reporte = VALUES(origen_reporte),
-                fecha_actualizacion = NOW()';
+                fecha_actualizacion = ?';
 
     $stmt = $conn->prepare($sql);
     if ($stmt === false) {
@@ -164,9 +164,10 @@ function registrarProspectosSeguimiento(mysqli $conn, array $prospectos): void
         $ultimaCita = $prospecto['ultima_cita'] ?? null;
         $origenReporte = 'prospectos_promocion';
         $estatusCreada = 1;
+        $fechaActual = fechaMexicoActual();
 
         $stmt->bind_param(
-            'iiiidsis',
+            'iiiidsissss',
             $pacienteId,
             $clienteId,
             $totalCompletadas,
@@ -174,7 +175,10 @@ function registrarProspectosSeguimiento(mysqli $conn, array $prospectos): void
             $calificacion,
             $ultimaCita,
             $estatusCreada,
-            $origenReporte
+            $origenReporte,
+            $fechaActual,
+            $fechaActual,
+            $fechaActual
         );
 
         if (!$stmt->execute()) {

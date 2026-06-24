@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("EventosChecador")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1f9d6da20af758109a39e293e7d42376f138954b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+0909ca3339a863213f2754635375fb2348568115")]
 [assembly: System.Reflection.AssemblyProductAttribute("EventosChecador")]
 [assembly: System.Reflection.AssemblyTitleAttribute("EventosChecador")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

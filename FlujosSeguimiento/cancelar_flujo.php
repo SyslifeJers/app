@@ -14,11 +14,12 @@ if ($id <= 0) {
 
 $conn = conectar();
 $conn->set_charset('utf8mb4');
-$stmt = $conn->prepare("UPDATE exp_flujo_asignaciones SET estatus = 'cancelado', activo = 0, fecha_cierre = NOW(), usuario_cierre = ? WHERE id_asignacion = ? AND estatus <> 'cancelado'");
+$fechaCierre = fechaMexicoActual();
+$stmt = $conn->prepare("UPDATE exp_flujo_asignaciones SET estatus = 'cancelado', activo = 0, fecha_cierre = ?, usuario_cierre = ? WHERE id_asignacion = ? AND estatus <> 'cancelado'");
 if (!$stmt) {
     flujos_json_response(500, ['success' => false, 'message' => 'No fue posible preparar la cancelacion.']);
 }
-$stmt->bind_param('ii', $session['id'], $id);
+$stmt->bind_param('sii', $fechaCierre, $session['id'], $id);
 $ok = $stmt->execute();
 $stmt->close();
 if ($ok) {

@@ -15,6 +15,14 @@ if ($result instanceof mysqli_result) {
         $flujos[] = $row;
     }
 }
+
+$examenes = [];
+$resExamenes = $conn->query("SELECT id_examen, nombre_examen FROM exp_examenes ORDER BY nombre_examen ASC");
+if ($resExamenes instanceof mysqli_result) {
+    while ($row = $resExamenes->fetch_assoc()) {
+        $examenes[] = $row;
+    }
+}
 ?>
 
 <div class="page-inner">
@@ -45,7 +53,7 @@ if ($result instanceof mysqli_result) {
             <div class="card mt-3">
                 <div class="card-header"><strong>Agregar tarea plantilla</strong></div>
                 <div class="card-body">
-                    <form id="taskForm">
+                    <form id="taskForm" enctype="multipart/form-data">
                         <input type="hidden" name="id_tarea" value="0">
                         <div class="mb-2"><label class="form-label">Flujo</label><select class="form-select" name="id_flujo" required><?php foreach ($flujos as $f): ?><option value="<?php echo (int)$f['id_flujo']; ?>"><?php echo htmlspecialchars($f['nombre']); ?></option><?php endforeach; ?></select></div>
                         <div class="mb-2"><label class="form-label">Nombre</label><input class="form-control" name="nombre" required></div>
@@ -58,6 +66,9 @@ if ($result instanceof mysqli_result) {
                         </div>
                         <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="obligatoria" checked id="task_obligatoria"><label class="form-check-label" for="task_obligatoria">Obligatoria</label></div>
                         <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="requiere_documento" id="task_doc"><label class="form-check-label" for="task_doc">Requiere documento</label></div>
+                        <div class="mb-2"><label class="form-label">Tipo de entrega</label><select class="form-select" name="tipo_entrega" id="tipo_entrega"><option value="sin_entrega">Sin entrega</option><option value="subir_documento">Subir documento</option><option value="documento_plantilla">Documento plantilla</option><option value="evaluacion_formulario">Evaluacion formulario</option></select></div>
+                        <div class="mb-2" id="examBox" style="display:none"><label class="form-label">Examen / evaluacion</label><select class="form-select" name="id_examen"><option value="">Selecciona examen</option><?php foreach ($examenes as $ex): ?><option value="<?php echo (int)$ex['id_examen']; ?>">#<?php echo (int)$ex['id_examen']; ?> - <?php echo htmlspecialchars($ex['nombre_examen']); ?></option><?php endforeach; ?></select></div>
+                        <div class="mb-3" id="templateBox" style="display:none"><label class="form-label">Plantilla DOCX/DOC/PDF</label><input class="form-control" type="file" name="plantilla" accept=".doc,.docx,.pdf"><div class="form-text">La psicologa podra descargar esta plantilla y subirla llena como evidencia.</div></div>
                         <button class="btn btn-primary" type="submit">Guardar tarea</button>
                     </form>
                 </div>
@@ -106,6 +117,17 @@ function formToJson(form) {
 function postJson(url, data) {
     return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>' }, credentials: 'same-origin', body: JSON.stringify(data) }).then(r => r.json().then(j => ({ ok: r.ok, data: j })));
 }
+function postForm(url, form) {
+    return fetch(url, { method: 'POST', headers: { 'X-CSRF-Token': '<?php echo htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8'); ?>' }, credentials: 'same-origin', body: new FormData(form) }).then(r => r.json().then(j => ({ ok: r.ok, data: j })));
+}
+function syncDeliveryFields() {
+    const type = document.getElementById('tipo_entrega').value;
+    document.getElementById('examBox').style.display = type === 'evaluacion_formulario' ? '' : 'none';
+    document.getElementById('templateBox').style.display = type === 'documento_plantilla' ? '' : 'none';
+    if (type === 'subir_documento' || type === 'documento_plantilla') {
+        document.getElementById('task_doc').checked = true;
+    }
+}
 document.getElementById('flowForm').addEventListener('submit', function (event) {
     event.preventDefault();
     const data = formToJson(event.currentTarget);
@@ -114,7 +136,7 @@ document.getElementById('flowForm').addEventListener('submit', function (event) 
 });
 document.getElementById('taskForm').addEventListener('submit', function (event) {
     event.preventDefault();
-    postJson('guardar_tarea_flujo.php', formToJson(event.currentTarget)).then(result => { if (!result.ok || !result.data.success) throw new Error(result.data.message || 'No se pudo guardar'); location.reload(); }).catch(e => alert(e.message));
+    postForm('guardar_tarea_flujo.php', event.currentTarget).then(result => { if (!result.ok || !result.data.success) throw new Error(result.data.message || 'No se pudo guardar'); location.reload(); }).catch(e => alert(e.message));
 });
 document.querySelectorAll('.edit-flow').forEach(btn => btn.addEventListener('click', function () {
     document.getElementById('id_flujo').value = this.dataset.id;
@@ -123,9 +145,11 @@ document.querySelectorAll('.edit-flow').forEach(btn => btn.addEventListener('cli
     document.getElementById('flujo_activo').checked = this.dataset.activo === '1';
 }));
 document.getElementById('resetFlow').addEventListener('click', function () { document.getElementById('flowForm').reset(); document.getElementById('id_flujo').value = '0'; });
+document.getElementById('tipo_entrega').addEventListener('change', syncDeliveryFields);
+syncDeliveryFields();
 document.querySelectorAll('.show-tasks').forEach(btn => btn.addEventListener('click', function () {
     fetch('listar_tareas_flujo.php?id_flujo=' + encodeURIComponent(this.dataset.id), { credentials: 'same-origin' }).then(r => r.json()).then(payload => {
-        const rows = (payload.data || []).map(t => '<tr><td>' + t.orden + '</td><td>' + t.nombre + '</td><td>' + t.tipo_tarea + '</td><td>' + t.responsable + '</td><td>' + (Number(t.activo) === 1 ? 'Activa' : 'Inactiva') + '</td></tr>').join('');
+        const rows = (payload.data || []).map(t => '<tr><td>' + t.orden + '</td><td>' + t.nombre + (t.plantilla_ruta ? '<div><a target="_blank" href="' + t.plantilla_ruta + '">Plantilla</a></div>' : '') + '</td><td>' + t.tipo_tarea + '<div class="small text-muted">' + (t.tipo_entrega || 'sin_entrega') + (t.id_examen ? ' #' + t.id_examen : '') + '</div></td><td>' + t.responsable + '</td><td>' + (Number(t.activo) === 1 ? 'Activa' : 'Inactiva') + '</td></tr>').join('');
         document.getElementById('tasksBox').innerHTML = '<div class="table-responsive"><table class="table table-sm"><thead><tr><th>Orden</th><th>Tarea</th><th>Tipo</th><th>Responsable</th><th>Estado</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
     });
 }));

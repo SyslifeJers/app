@@ -56,7 +56,7 @@ if ($_SESSION['token'] !== $db_token) {
   $rutaFrasesRol = null;
   if ($rol === $ROL_ADMINISTRADOR) {
       $rutaFrasesRol = __DIR__ . '/../data/frases_diarias.json';
-  } elseif ($rol === $ROL_VENTAS) {
+  } elseif ($rol === $ROL_VENTAS || $rol === $ROL_PRACTICANTE) {
       $rutaFrasesRol = __DIR__ . '/../data/chistes_godin.json';
   }
 

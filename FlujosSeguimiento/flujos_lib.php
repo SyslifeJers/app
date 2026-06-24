@@ -167,7 +167,7 @@ function flujos_asignar(mysqli $conn, int $flujoId, int $ninoId, int $psicologoI
         $asignacionId = (int) $conn->insert_id;
         $stmt->close();
 
-        $stmtTareas = $conn->prepare('SELECT id_tarea, nombre, descripcion, orden, tipo_tarea, responsable, obligatoria, dias_vencimiento, requiere_documento FROM exp_flujo_tareas WHERE id_flujo = ? AND activo = 1 ORDER BY orden ASC, id_tarea ASC');
+        $stmtTareas = $conn->prepare('SELECT id_tarea, nombre, descripcion, orden, tipo_tarea, responsable, obligatoria, dias_vencimiento, requiere_documento, tipo_entrega, id_examen, plantilla_ruta, plantilla_nombre_original, plantilla_mime, plantilla_tamano FROM exp_flujo_tareas WHERE id_flujo = ? AND activo = 1 ORDER BY orden ASC, id_tarea ASC');
         if (!$stmtTareas) {
             throw new RuntimeException('No fue posible obtener tareas del flujo.');
         }
@@ -175,7 +175,7 @@ function flujos_asignar(mysqli $conn, int $flujoId, int $ninoId, int $psicologoI
         $stmtTareas->execute();
         $result = $stmtTareas->get_result();
 
-        $stmtInsert = $conn->prepare('INSERT INTO exp_flujo_tareas_asignadas (id_asignacion, id_tarea_plantilla, id_nino, nombre, descripcion, orden, tipo_tarea, responsable, responsable_usuario_id, obligatoria, requiere_documento, fecha_limite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        $stmtInsert = $conn->prepare('INSERT INTO exp_flujo_tareas_asignadas (id_asignacion, id_tarea_plantilla, id_nino, nombre, descripcion, orden, tipo_tarea, responsable, responsable_usuario_id, obligatoria, requiere_documento, tipo_entrega, id_examen, plantilla_ruta, plantilla_nombre_original, plantilla_mime, plantilla_tamano, fecha_limite) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         if (!$stmtInsert) {
             throw new RuntimeException('No fue posible generar tareas.');
         }
@@ -192,8 +192,14 @@ function flujos_asignar(mysqli $conn, int $flujoId, int $ninoId, int $psicologoI
             $responsable = (string) $task['responsable'];
             $obligatoria = (int) $task['obligatoria'];
             $requiereDocumento = (int) $task['requiere_documento'];
+            $tipoEntrega = (string) ($task['tipo_entrega'] ?? 'sin_entrega');
+            $idExamen = $task['id_examen'] !== null ? (int) $task['id_examen'] : null;
+            $plantillaRuta = $task['plantilla_ruta'] !== null ? (string) $task['plantilla_ruta'] : null;
+            $plantillaNombre = $task['plantilla_nombre_original'] !== null ? (string) $task['plantilla_nombre_original'] : null;
+            $plantillaMime = $task['plantilla_mime'] !== null ? (string) $task['plantilla_mime'] : null;
+            $plantillaTamano = $task['plantilla_tamano'] !== null ? (int) $task['plantilla_tamano'] : null;
             $stmtInsert->bind_param(
-                'iiississiiis',
+                'iiississiiisisssis',
                 $asignacionId,
                 $taskId,
                 $ninoId,
@@ -205,6 +211,12 @@ function flujos_asignar(mysqli $conn, int $flujoId, int $ninoId, int $psicologoI
                 $responsableUsuario,
                 $obligatoria,
                 $requiereDocumento,
+                $tipoEntrega,
+                $idExamen,
+                $plantillaRuta,
+                $plantillaNombre,
+                $plantillaMime,
+                $plantillaTamano,
                 $fechaLimite
             );
             if (!$stmtInsert->execute()) {

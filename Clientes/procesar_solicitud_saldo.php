@@ -91,6 +91,7 @@ try {
     $diferencia = $saldoDeseado - $saldoActual;
 
     if ($accion === 'aprobar') {
+        $fechaResolucion = fechaMexicoActual();
         if (abs($diferencia) >= 0.01) {
             if (!ajustarSaldoPaciente($conn, $pacienteId, $diferencia)) {
                 throw new RuntimeException('No fue posible ajustar el saldo del paciente.');
@@ -98,14 +99,14 @@ try {
         }
 
         $stmtActualizar = $conn->prepare(
-            "UPDATE SolicitudAjusteSaldo SET estatus = 'aprobada', aprobado_por = ?, fecha_resolucion = NOW(), respuesta = ? WHERE id = ?"
+            "UPDATE SolicitudAjusteSaldo SET estatus = 'aprobada', aprobado_por = ?, fecha_resolucion = ?, respuesta = ? WHERE id = ?"
         );
 
         if ($stmtActualizar === false) {
             throw new RuntimeException('No fue posible actualizar la solicitud.');
         }
 
-        $stmtActualizar->bind_param('isi', $usuarioId, $comentario, $solicitudId);
+        $stmtActualizar->bind_param('issi', $usuarioId, $fechaResolucion, $comentario, $solicitudId);
 
         if (!$stmtActualizar->execute()) {
             throw new RuntimeException('No fue posible guardar la resolución.');
@@ -136,15 +137,16 @@ try {
         $_SESSION['solicitud_saldo_mensaje'] = 'Solicitud aprobada y saldo actualizado correctamente.';
         $_SESSION['solicitud_saldo_tipo'] = 'success';
     } else {
+        $fechaResolucion = fechaMexicoActual();
         $stmtRechazar = $conn->prepare(
-            "UPDATE SolicitudAjusteSaldo SET estatus = 'rechazada', aprobado_por = ?, fecha_resolucion = NOW(), respuesta = ? WHERE id = ?"
+            "UPDATE SolicitudAjusteSaldo SET estatus = 'rechazada', aprobado_por = ?, fecha_resolucion = ?, respuesta = ? WHERE id = ?"
         );
 
         if ($stmtRechazar === false) {
             throw new RuntimeException('No fue posible actualizar la solicitud.');
         }
 
-        $stmtRechazar->bind_param('isi', $usuarioId, $comentario, $solicitudId);
+        $stmtRechazar->bind_param('issi', $usuarioId, $fechaResolucion, $comentario, $solicitudId);
 
         if (!$stmtRechazar->execute()) {
             throw new RuntimeException('No fue posible registrar el rechazo.');

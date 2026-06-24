@@ -13,6 +13,7 @@ const pagoModalEstado = {
   psicologoNombre: '',
   tipo: '',
   programado: null,
+  esServicio: false,
   mensajePago: '',
   imprimirTicket: true
 };
@@ -51,6 +52,12 @@ const grupoMetodoPaquete = document.getElementById('grupoMetodoPaquete');
 const grupoSaldoPaquete = document.getElementById('grupoSaldoPaquete');
 const resumenSaldoPaqueteInput = document.getElementById('resumenSaldoPaquete');
 const paquetesDisponibles = new Map();
+const grupoPagoInicialServicio = document.getElementById('grupoPagoInicialServicio');
+const servicioPagoInicialInput = document.getElementById('servicioPagoInicial');
+const servicioMetodoSelect = document.getElementById('servicioMetodo');
+const servicioActivoAviso = document.getElementById('servicioActivoAviso');
+let servicioActivoPaciente = null;
+let ultimoPacienteServicioConsultado = '';
 
 function formatearDatetimeLocal(fecha) {
   if (!(fecha instanceof Date) || Number.isNaN(fecha.getTime())) {
@@ -190,6 +197,27 @@ function obtenerPaqueteSeleccionado() {
 
 function aplicarPaqueteSeleccionado() {
   if (!resumenPaqueteInput || !sendIdPaqueteInput) {
+    return;
+  }
+
+  if (aplicarCostoServicioActivo()) {
+    resumenPaqueteInput.value = 'Sin paquete';
+    sendIdPaqueteInput.value = '';
+    if (grupoMetodoPaquete) {
+      grupoMetodoPaquete.classList.add('d-none');
+    }
+    if (grupoSaldoPaquete) {
+      grupoSaldoPaquete.classList.add('d-none');
+    }
+    if (resumenSaldoPaqueteInput) {
+      resumenSaldoPaqueteInput.value = '';
+    }
+    if (paqueteMetodoSelect) {
+      paqueteMetodoSelect.value = '';
+    }
+    if (paqueteSelect) {
+      paqueteSelect.value = '';
+    }
     return;
   }
 
@@ -436,8 +464,11 @@ function actualizarCitaPago(info) {
 
   pagoModalEstado.idCita = info.idCita || null;
   pagoModalEstado.estatus = info.estatus || null;
-  pagoModalEstado.costo = parseFloat(info.costo) || 0;
-  pagoModalEstado.saldo = parseFloat(info.saldo) || 0;
+  pagoModalEstado.esServicio = Boolean(info.servicioPacienteId);
+  pagoModalEstado.costo = pagoModalEstado.esServicio
+    ? (parseFloat(info.servicioSaldoRestante) || 0)
+    : (parseFloat(info.costo) || 0);
+  pagoModalEstado.saldo = pagoModalEstado.esServicio ? 0 : (parseFloat(info.saldo) || 0);
   pagoModalEstado.pacienteId = info.pacienteId || null;
   pagoModalEstado.pacienteNombre = info.pacienteNombre || '';
   pagoModalEstado.psicologoId = info.psicologoId || null;
@@ -551,6 +582,10 @@ function actualizarCitaPago(info) {
 
         if (responseData && responseData.success) {
           pagoModalEstado.mensajePago = responseData.message || '';
+          if (pagoModalEstado.esServicio) {
+            window.location.reload();
+            return;
+          }
           mostrarModalProximaCita();
         } else {
           if (responseData && responseData.message) {
@@ -744,6 +779,82 @@ function agendarProximaCita() {
       window.location.reload();
     }
   });
+}
+
+function obtenerOpcionPrecioSeleccionada() {
+  const costosSelect = document.getElementById('costosSelect');
+  if (!costosSelect || costosSelect.selectedIndex < 0) {
+    return null;
+  }
+  return costosSelect.options[costosSelect.selectedIndex] || null;
+}
+
+function obtenerMetadataPrecioSeleccionado() {
+  const option = obtenerOpcionPrecioSeleccionada();
+  if (!option) {
+    return null;
+  }
+
+  const sesiones = parseInt(option.dataset.sesionesTotal || '1', 10);
+  return {
+    precioId: option.dataset.precioId || '',
+    sesionesTotal: Number.isInteger(sesiones) ? sesiones : 1,
+    requiereCita: option.dataset.requiereCita !== '0',
+    permiteSinFecha: option.dataset.permiteSinFecha === '1',
+    costo: parseFloat(option.value) || 0,
+    nombre: (option.text || '').replace(/[0-9:$.]/g, '').trim()
+  };
+}
+
+function precioSeleccionadoEsServicioActivo() {
+  const option = obtenerOpcionPrecioSeleccionada();
+  if (!option || !servicioActivoPaciente) {
+    return false;
+  }
+  return String(option.dataset.precioId || '') === String(servicioActivoPaciente.precio_id || '');
+}
+
+function aplicarCostoServicioActivo() {
+  const resumenCostoInput = document.getElementById('resumenCosto');
+  if (!precioSeleccionadoEsServicioActivo()) {
+    if (servicioActivoAviso) {
+      servicioActivoAviso.textContent = '';
+      servicioActivoAviso.classList.add('d-none');
+    }
+    return false;
+  }
+
+  if (resumenCostoInput) {
+    resumenCostoInput.value = '0.00';
+    resumenCostoInput.removeAttribute('readonly');
+  }
+
+  if (servicioActivoAviso && servicioActivoPaciente) {
+    const sesionesCompletadas = parseInt(servicioActivoPaciente.sesiones_completadas || 0, 10);
+    const sesionesTotal = parseInt(servicioActivoPaciente.sesiones_total || 0, 10);
+    const siguienteSesion = sesionesTotal > 0 ? Math.min(sesionesCompletadas + 1, sesionesTotal) : sesionesCompletadas + 1;
+    const restante = parseFloat(servicioActivoPaciente.saldo_restante || 0);
+    servicioActivoAviso.textContent = 'Servicio activo: ' + (servicioActivoPaciente.nombre || 'Servicio') + ' ' + siguienteSesion + '/' + sesionesTotal + '. Esta cita se guardará sin costo. Restante: ' + formatoMoneda.format(restante) + '.';
+    servicioActivoAviso.classList.remove('d-none');
+  }
+
+  return true;
+}
+
+function actualizarVisibilidadServicio() {
+  const metadata = obtenerMetadataPrecioSeleccionado();
+  const esServicio = metadata && (metadata.sesionesTotal !== 1 || !metadata.requiereCita || metadata.permiteSinFecha);
+  if (grupoPagoInicialServicio) {
+    grupoPagoInicialServicio.classList.toggle('d-none', !esServicio);
+  }
+  if (!esServicio) {
+    if (servicioPagoInicialInput) {
+      servicioPagoInicialInput.value = '0.00';
+    }
+    if (servicioMetodoSelect) {
+      servicioMetodoSelect.value = '';
+    }
+  }
 }
 document.addEventListener('click', (event) => {
   const target = event.target instanceof Element ? event.target.closest('.pagar-cita-btn') : null;
@@ -1053,15 +1164,17 @@ function validarFormulario(event) {
   const fecha = document.getElementById('resumenFecha').value;
   const tiempoTexto = document.getElementById('resumenTiempo') ? document.getElementById('resumenTiempo').value : '';
   const costo = parseFloat(costoTexto);
+  const metadataPrecio = obtenerMetadataPrecioSeleccionado();
+  const permiteServicioSinFecha = metadataPrecio && (metadataPrecio.permiteSinFecha || metadataPrecio.requiereCita === false || metadataPrecio.sesionesTotal === 0);
 
   // Validar que los campos no estén vacíos
-  if (!cliente || !psicologo || !tipo || costoTexto === '' || !fecha || tiempoTexto === '') {
+  if (!cliente || !psicologo || !tipo || costoTexto === '' || (!fecha && !permiteServicioSinFecha) || (!permiteServicioSinFecha && tiempoTexto === '')) {
     alert('Todos los campos son obligatorios.');
     return false;
   }
 
   const tiempoNumero = parseInt(tiempoTexto, 10);
-  if (!Number.isInteger(tiempoNumero) || tiempoNumero <= 0) {
+  if (!permiteServicioSinFecha && (!Number.isInteger(tiempoNumero) || tiempoNumero <= 0)) {
     alert('El tiempo de la cita debe ser un número entero mayor a 0.');
     return false;
   }
@@ -1072,11 +1185,19 @@ function validarFormulario(event) {
   }
 
   // Validar que la fecha de la cita sea igual o mayor a la fecha actual
-  const fechaCita = new Date(fecha);
-  const fechaActual = new Date();
+  if (fecha) {
+    const fechaCita = new Date(fecha);
+    const fechaActual = new Date();
 
-  if (fechaCita < fechaActual) {
-    alert('La fecha de la cita debe ser igual o mayor a la fecha actual.');
+    if (fechaCita < fechaActual) {
+      alert('La fecha de la cita debe ser igual o mayor a la fecha actual.');
+      return false;
+    }
+  }
+
+  const pagoInicialServicio = servicioPagoInicialInput ? parseFloat(servicioPagoInicialInput.value || '0') : 0;
+  if (pagoInicialServicio > 0.009 && servicioMetodoSelect && !servicioMetodoSelect.value) {
+    alert('Selecciona el método para el pago inicial del servicio.');
     return false;
   }
 
@@ -1116,17 +1237,72 @@ function updateResumen() {
     const textoOpcion = costosSelect.options[costosSelect.selectedIndex].text;
     const textoLimpio = textoOpcion.replace(/[0-9:$.]/g, '').trim();
     document.getElementById('resumenTipo').value = textoLimpio;
+    const precioInput = document.getElementById('sendIdPrecio');
+    if (precioInput) {
+      precioInput.value = costosSelect.options[costosSelect.selectedIndex].dataset.precioId || '';
+    }
     if (resumenCostoInput && !(paqueteSelect && paqueteSelect.value)) {
-      resumenCostoInput.value = costosSelect.options[costosSelect.selectedIndex].value;
+      if (!aplicarCostoServicioActivo()) {
+        resumenCostoInput.value = costosSelect.options[costosSelect.selectedIndex].value;
+      }
     }
   }
+
+  actualizarVisibilidadServicio();
 
   if (citaDia) {
     document.getElementById('resumenFecha').value = citaDia.value;
   }
 
   aplicarPaqueteSeleccionado();
+  aplicarCostoServicioActivo();
   revisarCita();
+  consultarServicioActivoPaciente();
+}
+
+function seleccionarPrecioPorId(precioId) {
+  const costosSelect = document.getElementById('costosSelect');
+  if (!costosSelect || !precioId) {
+    return false;
+  }
+  for (let index = 0; index < costosSelect.options.length; index++) {
+    if (String(costosSelect.options[index].dataset.precioId || '') === String(precioId)) {
+      costosSelect.selectedIndex = index;
+      return true;
+    }
+  }
+  return false;
+}
+
+function consultarServicioActivoPaciente() {
+  const pacienteInput = document.getElementById('sendIdCliente');
+  const pacienteId = pacienteInput ? String(pacienteInput.value || '') : '';
+  if (!pacienteId || pacienteId === ultimoPacienteServicioConsultado) {
+    return;
+  }
+
+  ultimoPacienteServicioConsultado = pacienteId;
+  servicioActivoPaciente = null;
+
+  fetch('Modulos/getServicioActivoPaciente.php?paciente_id=' + encodeURIComponent(pacienteId), { credentials: 'same-origin' })
+    .then((response) => response.json().catch(() => null))
+    .then((data) => {
+      if (!data || data.success !== true || !data.servicio) {
+        return;
+      }
+      servicioActivoPaciente = data.servicio;
+      if (!seleccionarPrecioPorId(servicioActivoPaciente.precio_id)) {
+        return;
+      }
+
+      const resumenCostoInput = document.getElementById('resumenCosto');
+      if (resumenCostoInput) {
+        resumenCostoInput.value = '0.00';
+      }
+      aplicarCostoServicioActivo();
+      updateResumen();
+    })
+    .catch(() => {});
 }
 
 function getCitaPrefillParams() {
@@ -1222,7 +1398,7 @@ function loadCostos() {
       $('#costosSelect').append($('<option>', {
         value: 0,
         text: 'Reunión interna (sin costo)'
-      }));
+      }).attr('data-precio-id', '').attr('data-sesiones-total', 1).attr('data-requiere-cita', 1).attr('data-permite-sin-fecha', 0));
 
       var jsonString = this.responseText;
       var jsonItems = jsonString.match(/({.*?})/g);
@@ -1232,10 +1408,15 @@ function loadCostos() {
         return JSON.parse(item);
       });
       items.forEach(function (item) {
-        $('#costosSelect').append($('<option>', {
+        const option = $('<option>', {
           value: item.costo,
           text: item.name
-        }));
+        }).attr('data-precio-id', item.id || '')
+          .attr('data-sesiones-total', item.sesiones_total || 1)
+          .attr('data-requiere-cita', item.requiere_cita === undefined ? 1 : item.requiere_cita)
+          .attr('data-permite-sin-fecha', item.permite_sin_fecha || 0);
+        $('#costosSelect').append(option);
+
       });
       /*                     let names = JSON.parse(this.responseText);
                 let options = '<option value="">Seleccione un nombre</option>';
@@ -1247,6 +1428,7 @@ function loadCostos() {
   };
   xhr.send();
 }
+
 
 function loadPaquetes() {
   if (!paqueteSelect) {

@@ -46,6 +46,7 @@ if ($plantilla === '') {
 $mensajeRenderizado = array_key_exists('mensaje_renderizado', $jsonBody) && $jsonBody['mensaje_renderizado'] !== null
     ? trim((string) $jsonBody['mensaje_renderizado'])
     : null;
+$fechaCreacion = fechaMexicoActual();
 
 // Update (si viene id)
 if ($id > 0) {
@@ -87,7 +88,7 @@ $sql = 'INSERT INTO ProspectosSeguimientoComunicacionMensajes (
             plantilla,
             mensaje_renderizado,
             creado_en
-        ) VALUES (NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, NOW())';
+        ) VALUES (NULLIF(?, 0), NULLIF(?, 0), NULLIF(?, 0), ?, ?, ?, ?)';
 
 $stmt = $conn->prepare($sql);
 if ($stmt === false) {
@@ -96,7 +97,7 @@ if ($stmt === false) {
 
 // paciente_id puede ser NULL en scope=global (enviando 0 para que NULLIF lo convierta a NULL)
 $pacienteIdParam = $pacienteId === null ? 0 : (int) $pacienteId;
-$stmt->bind_param('iiiiss', $seguimientoId, $pacienteIdParam, $clienteId, $estatusId, $plantilla, $mensajeRenderizado);
+$stmt->bind_param('iiiisss', $seguimientoId, $pacienteIdParam, $clienteId, $estatusId, $plantilla, $mensajeRenderizado, $fechaCreacion);
 if (!$stmt->execute()) {
     $stmt->close();
     jsonResponse(500, ['error' => 'No fue posible guardar el mensaje.']);

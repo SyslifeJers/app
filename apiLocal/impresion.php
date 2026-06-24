@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/helpers.php';
+require_once __DIR__ . '/../conexion.php';
 
 function ensurePrintSchema(mysqli $conn): void
 {
@@ -162,8 +163,9 @@ function updatePrintJob(mysqli $conn, int $jobId): void
         $intentos++;
     }
 
-    $update = $conn->prepare('UPDATE cola_impresion_ticket SET estado = ?, mensaje_error = ?, intentos = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
-    $update->bind_param('ssii', $estado, $mensaje, $intentos, $jobId);
+    $fechaActualizacion = fechaMexicoActual();
+    $update = $conn->prepare('UPDATE cola_impresion_ticket SET estado = ?, mensaje_error = ?, intentos = ?, updated_at = ? WHERE id = ?');
+    $update->bind_param('ssisi', $estado, $mensaje, $intentos, $fechaActualizacion, $jobId);
     $update->execute();
 
     jsonResponse(200, [
